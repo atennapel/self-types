@@ -1,3 +1,50 @@
+import java.nio.file.{Files, Path}
+
 object Main:
   @main def run(): Unit =
-    println("hi")
+    Debug.setDebug(false)
+    val file = "example.self"
+    val text = Files.readString(Path.of(file))
+    val defs = parse(text)
+    val edefs = elaborate(defs, text)
+    given List[Common.Bind] = Nil
+    edefs.foreach { d =>
+      println(
+        s"def ${d.name} : ${Pretty.pretty(d.ty)} = ${Pretty.pretty(d.value)}"
+      )
+    }
+    println()
+    State.getGlobal(Common.Name("main")) match
+      case None                                    => ()
+      case Some(State.GlobalEntry(_, tm, _, _, _)) =>
+        val nf = Evaluation.nf(tm)
+        println(Pretty.pretty(nf))
+
+  // helpers
+  private def parse(text: String): Surface.Defs =
+    try Parser.parse(text)
+    catch
+      case err: Parser.ParseError =>
+        val pos = err.pos
+        System.err.println(err.msg)
+        System.err.println(s"at $pos")
+        System.err.println(showPos(text, pos))
+        throw err
+
+  private def elaborate(
+      ds: Surface.Defs,
+      text: String
+  ): Core.Defs =
+    try Elaboration.elaborate(ds)
+    catch
+      case err: Elaboration.ElaborationError =>
+        val pos = err.pos
+        System.err.println(err.msg)
+        System.err.println(s"at $pos")
+        System.err.println(showPos(text, pos))
+        throw err
+
+  private def showPos(text: String, pos: Common.PosInfo): String =
+    val line = text.lines.toArray.apply(pos.line - 1)
+    val indicator = " " * (pos.column - 1)
+    s"$line\n$indicator^"

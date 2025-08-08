@@ -24,7 +24,8 @@ object Parser:
       case Token.Symbol(_, pos)     => pos
       case Token.Number(_, pos)     => pos
 
-  private val keywords: Set[String] = Set("def", "let", "Type", "fst", "snd")
+  private val keywords: Set[String] =
+    Set("def", "let", "Type", "fst", "snd", "with", "self", "in", "out")
   private val symbols1: Set[Char] = Set(':', ';', '=', '\\', '(', ')', ',')
   private val symbols2: Map[Char, Set[Char]] =
     Map('-' -> Set('>'), '=' -> Set('>'), '*' -> Set('*'))
@@ -196,6 +197,24 @@ object Parser:
     else if trySymbol("\\") then parseLam()
     else if tryKeyword("fst") then Tm.Proj(ctx.pos, ProjType.Fst, parseAtom())
     else if tryKeyword("snd") then Tm.Proj(ctx.pos, ProjType.Snd, parseAtom())
+    else if tryKeyword("with") then
+      val pos = ctx.pos
+      val tm = parseAtom()
+      val self = parseAtom()
+      Tm.With(pos, tm, self)
+    else if tryKeyword("self") then
+      val pos = ctx.pos
+      val x = name()
+      symbol("=>")
+      val b = parseExpr()
+      Tm.Self(pos, x, b)
+    else if tryKeyword("in") then
+      val pos = ctx.pos
+      val x = name()
+      symbol("=>")
+      val b = parseExpr()
+      Tm.In(pos, x, b)
+    else if tryKeyword("out") then Tm.Out(ctx.pos, parseAtom())
     else
       backtrack(piSigmaParam()) match
         case None    => apps()
@@ -218,13 +237,15 @@ object Parser:
       if trySymbol(")") then None
       else
         val pos = ctx.pos
-        val x = bind()
-        val xs = list(tryBind)
-        if trySymbol(":") then
-          val ty = parseExpr()
-          symbol(")")
-          Some((pos, x :: xs, ty))
-        else None
+        tryBind() match
+          case Some(x) =>
+            val xs = list(tryBind)
+            if trySymbol(":") then
+              val ty = parseExpr()
+              symbol(")")
+              Some((pos, x :: xs, ty))
+            else None
+          case None => None
     else None
 
   private def apps()(using ctx: Ctx): Tm =

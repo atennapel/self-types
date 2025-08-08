@@ -40,10 +40,18 @@ object Evaluation:
   def fst(v: Val): Val = proj(ProjType.Fst, v)
   def snd(v: Val): Val = proj(ProjType.Snd, v)
 
+  def out(v: Val): Val = v match
+    case Val.In(_, b)         => b(v)
+    case Val.Rigid(h, sp)     => Val.Rigid(h, Spine.Out(sp))
+    case Val.Unfold(h, sp, v) =>
+      Val.Unfold(h, Spine.Out(sp), () => out(v()))
+    case _ => impossible()
+
   def spine(v: Val, sp: Spine): Val = sp match
     case Spine.Empty       => v
     case Spine.App(sp, a)  => app(spine(v, sp), a)
     case Spine.Proj(sp, p) => proj(p, spine(v, sp))
+    case Spine.Out(sp)     => out(spine(v, sp))
 
   def eval(t: Tm)(using env: Env): Val =
     t match
@@ -58,6 +66,9 @@ object Evaluation:
       case Tm.Sigma(x, ty, b) => Val.Sigma(x, eval(ty), Clos(b))
       case Tm.Proj(p, t)      => proj(p, eval(t))
       case Tm.Pair(f, s)      => Val.Pair(eval(f), eval(s))
+      case Tm.Self(x, b)      => Val.Self(x, Clos(b))
+      case Tm.In(x, b)        => Val.In(x, Clos(b))
+      case Tm.Out(t)          => out(eval(t))
       case Tm.Wk(tm)          => eval(tm)(using env.wk)
 
   // forcing
@@ -72,6 +83,7 @@ object Evaluation:
       case Spine.Empty       => h
       case Spine.App(sp, v)  => Tm.App(quote(h, sp, q), quote(v, q))
       case Spine.Proj(sp, p) => Tm.Proj(p, quote(h, sp, q))
+      case Spine.Out(sp)     => Tm.Out(quote(h, sp, q))
 
   def quote(v: Val, q: QuoteOption)(using lvl: Lvl): Tm =
     inline def go(v: Val): Tm = quote(v, q)
@@ -91,6 +103,8 @@ object Evaluation:
       case Val.Lam(x, ty, b)   => Tm.Lam(x, go(ty), goClos(b))
       case Val.Sigma(x, ty, b) => Tm.Sigma(x, go(ty), goClos(b))
       case Val.Pair(f, s)      => Tm.Pair(go(f), go(s))
+      case Val.Self(x, b)      => Tm.Self(x, goClos(b))
+      case Val.In(x, b)        => Tm.In(x, goClos(b))
 
   def nf(tm: Tm, q: QuoteOption = QuoteOption.UnfoldAll): Tm =
     quote(eval(tm)(using Env.Empty), q)(using lvl0)

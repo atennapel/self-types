@@ -31,6 +31,10 @@ object Core:
     case Proj(proj: ProjType, scrut: Tm)
     case Pair(fst: Tm, snd: Tm)
 
+    case Self(name: Name, body: Ty)
+    case In(name: Name, body: Tm)
+    case Out(tm: Tm)
+
     case Wk(tm: Tm)
 
     def wkN(n: Int) =
@@ -49,6 +53,9 @@ object Core:
       case Sigma(x, ty, b)  => s"(($x : $ty) ** $b)"
       case Proj(p, t)       => s"($p $t)"
       case Pair(f, s)       => s"($f, $s)"
+      case Self(x, b)       => s"(self $x => $b)"
+      case In(x, b)         => s"(in $x => $b)"
+      case Out(t)           => s"(out $t)"
       case Wk(tm)           => s"Wk11($tm)"
 
   enum Locals:
@@ -90,6 +97,7 @@ object Core:
     case Empty
     case App(sp: Spine, arg: Val)
     case Proj(sp: Spine, proj: ProjType)
+    case Out(sp: Spine)
 
     def size: Int =
       @tailrec
@@ -97,6 +105,7 @@ object Core:
         case Empty       => acc
         case App(sp, _)  => go(acc + 1, sp)
         case Proj(sp, _) => go(acc + 1, sp)
+        case Out(sp)     => go(acc + 1, sp)
       go(0, this)
 
     def reverse: Spine =
@@ -105,6 +114,7 @@ object Core:
         case Empty       => acc
         case App(sp, v)  => go(App(acc, v), sp)
         case Proj(sp, p) => go(Proj(acc, p), sp)
+        case Out(sp)     => go(Out(acc), sp)
       go(Empty, this)
 
     def isEmpty: Boolean = this match
@@ -127,6 +137,9 @@ object Core:
 
     case Sigma(name: Bind, ty: VTy, body: Clos)
     case Pair(fst: Val, snd: Val)
+
+    case Self(name: Name, body: Clos)
+    case In(name: Name, body: Clos)
 
     case Type
 

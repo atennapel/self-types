@@ -30,6 +30,11 @@ object Surface:
     case Proj(posInfo: PosInfo, proj: ProjType, scrut: Tm)
     case Pair(posInfo: PosInfo, fst: Tm, snd: Tm)
 
+    case With(posInfo: PosInfo, tm: Tm, self: Tm)
+    case Self(posInfo: PosInfo, name: Name, body: Ty)
+    case In(posInfo: PosInfo, name: Name, body: Tm)
+    case Out(posInfo: PosInfo, tm: Tm)
+
     case Hole(posInfo: PosInfo, name: Option[Name])
 
     def pos: PosInfo = this match
@@ -42,6 +47,10 @@ object Surface:
       case Tm.Sigma(pos, _, _, _)  => pos
       case Tm.Proj(pos, _, _)      => pos
       case Tm.Pair(pos, _, _)      => pos
+      case Tm.With(pos, _, _)      => pos
+      case Tm.Self(pos, _, _)      => pos
+      case Tm.In(pos, _, _)        => pos
+      case Tm.Out(pos, _)          => pos
       case Tm.Hole(pos, _)         => pos
 
     override def toString: String = this match
@@ -58,5 +67,9 @@ object Surface:
       case Sigma(_, x, ty, b)        => s"(($x : $ty) ** $b)"
       case Proj(_, p, t)             => s"($p $t)"
       case Pair(_, f, s)             => s"($f, $s)"
+      case With(_, t, s)             => s"(with $t $s)"
+      case Self(_, x, b)             => s"(self $x => $b)"
+      case In(_, x, b)               => s"(in $x => $b)"
+      case Out(_, t)                 => s"(out $t)"
       case Hole(_, None)             => s"_"
       case Hole(_, Some(x))          => s"_$x"

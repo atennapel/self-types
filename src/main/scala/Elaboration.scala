@@ -60,22 +60,31 @@ object Elaboration:
 
   // checking
   private def check(tm: S.Tm, ty: VTy)(using ctx: Ctx): Tm =
-    debug(s"check $tm : ${ctx.pretty(ty)}")
+    check(tm, ty, None)
+
+  private def check(tm: S.Tm, ty: VTy, self: Option[Val])(using
+      ctx: Ctx
+  ): Tm =
+    debug(
+      s"check $tm : ${ctx.pretty(ty)}${self.map(s => s" with self ${ctx.pretty(s)}").getOrElse("")}"
+    )
     enter(tm.pos):
       (tm, forceAll(ty)) match
         case (S.Tm.Lam(_, x, ma, b), Val.Pi(x2, t1, t2)) =>
           ma.foreach { sty => unify(ctx.eval(check(sty, Val.Type)), t1) }
           val qt1 = ctx.quote(t1)
+          val v = Var1(ctx.lvl)
+          val nself = self.map(s => app(s, v))
           val eb =
-            check(b, t2(Var1(ctx.lvl)))(using ctx.bind(x, qt1, t1))
+            check(b, t2(v), nself)(using ctx.bind(x, qt1, t1))
           val y = x match
             case Bind.DoBind(_) => x
             case Bind.DontBind  => x2
           Tm.Lam(y, qt1, eb)
 
         case (S.Tm.Pair(_, f, s), Val.Sigma(_, t1, t2)) =>
-          val ef = check(f, t1)
-          val es = check(s, t2(ctx.eval(ef)))
+          val ef = check(f, t1, self.map(fst))
+          val es = check(s, t2(ctx.eval(ef)), self.map(snd))
           Tm.Pair(ef, es)
 
         case (S.Tm.Let(_, x, mlty, v, b), _) =>
@@ -90,11 +99,32 @@ object Elaboration:
               val ev = check(v, vlty)
               (ev, lty, vlty)
           val eb =
-            check(b, ty)(using ctx.define(x, lty, vlty, ev, ctx.eval(ev)))
+            check(b, ty, self)(using ctx.define(x, lty, vlty, ev, ctx.eval(ev)))
           Tm.Let(x, lty, ev, eb)
 
         case (S.Tm.Hole(_, x), _) =>
           err(s"checking _${x.getOrElse("")} against ${ctx.pretty(ty)}")
+
+        case (S.Tm.Self(_, x, b), Val.Type) =>
+          val nself =
+            self.getOrElse(err(s"self type can only be checked with a self"))
+          val v = Var1(ctx.lvl)
+          val nctx = ctx.bind(Bind.DoBind(x), ctx.quote(nself), nself)
+          val eb = check(b, Val.Type)(using nctx)
+          Tm.Self(x, eb)
+
+        case (S.Tm.In(_, x, b), Val.Self(_, sty)) =>
+          val v = Var1(ctx.lvl)
+          val (nctx, nself) = self match
+            case Some(s) =>
+              val nctx =
+                ctx.define(x, ctx.quote(ty), ty, ctx.quote(s), s)
+              (nctx, s)
+            case None =>
+              val nctx = ctx.bind(Bind.DoBind(x), ctx.quote(ty), ty)
+              (nctx, v)
+          val eb = check(b, sty(nself), Some(nself))(using nctx)
+          Tm.In(x, eb)
 
         case (tm, _) =>
           val (etm, vty) = infer(tm)
@@ -155,7 +185,8 @@ object Elaboration:
           )
         case S.Tm.Lam(_, _, _, _) => err("cannot infer unannotated lambda")
 
-        case S.Tm.Pair(_, _, _) => err("cannot infer pair without type")
+        case S.Tm.Pair(_, _, _) =>
+          err("cannot infer pair without expected type")
 
         case S.Tm.App(_, f, a) =>
           val (ef, fty) = infer(f)
@@ -177,6 +208,27 @@ object Elaboration:
               err(
                 s"cannot project out of expression of type ${ctx.pretty(sty)}"
               )
+
+        case S.Tm.With(_, tm, self) =>
+          val (eself, vty) = infer(self)
+          val vself = ctx.eval(eself)
+          val etm = check(tm, vty, Some(vself))
+          unify(ctx.eval(etm), vself)
+          (etm, vty)
+
+        case S.Tm.Out(_, tm) =>
+          val (etm, vty) = infer(tm)
+          forceAll(vty) match
+            case Val.Self(x, b) => (Tm.Out(etm), b(ctx.eval(etm)))
+            case _              =>
+              err(
+                s"cannot call out on expression of type ${ctx.pretty(vty)}"
+              )
+
+        case S.Tm.Self(_, _, _) =>
+          err("cannot infer self type without expected type")
+        case S.Tm.In(_, _, _) =>
+          err("cannot infer self type without expected type")
 
   // elaboration
   private def elaborate(defn: S.Def): Def =

@@ -18,7 +18,8 @@ object Unification:
         unify(top1, sp1, top2, sp2); unify(a1, a2)
       case (Spine.Proj(sp1, p1), Spine.Proj(sp2, p2)) if p1 == p2 =>
         unify(top1, sp1, top2, sp2)
-      case _ =>
+      case (Spine.Out(sp1), Spine.Out(sp2)) => unify(top1, sp1, top2, sp2)
+      case _                                =>
         err(
           s"spine mismatch ${quote(top1, UnfoldNone)} ~ ${quote(top2, UnfoldNone)}"
         )
@@ -36,6 +37,8 @@ object Unification:
         unify(ty1, ty2); goClos(b1, b2)
       case (Val.Sigma(_, ty1, b1), Val.Sigma(_, ty2, b2)) =>
         unify(ty1, ty2); goClos(b1, b2)
+      case (Val.Self(_, b1), Val.Self(_, b2)) => goClos(b1, b2)
+      case (Val.In(_, b1), Val.In(_, b2))     => goClos(b1, b2)
 
       case (Val.Lam(_, _, b1), Val.Lam(_, _, b2)) => goClos(b1, b2)
       case (Val.Lam(_, _, b), f)                  =>

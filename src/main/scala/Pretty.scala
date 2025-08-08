@@ -72,4 +72,8 @@ object Pretty:
       val parts = flatten(tm)
       s"(${parts.map(pretty).mkString(", ")})"
 
+    case Tm.Self(x, b) => s"self $x => ${pretty(b)}"
+    case Tm.In(x, b)   => s"self $x => ${pretty(b)}"
+    case Tm.Out(t)     => s"out ${prettyParen(t)}"
+
     case Tm.Wk(tm) => pretty(tm)(using ns.tail)

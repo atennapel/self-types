@@ -68,7 +68,15 @@ object Elaboration:
           val qt1 = ctx.quote(t1)
           val eb =
             check(b, t2(Var1(ctx.lvl)))(using ctx.bind(x, qt1, t1))
-          Tm.Lam(x, qt1, eb)
+          val y = x match
+            case Bind.DoBind(_) => x
+            case Bind.DontBind  => x2
+          Tm.Lam(y, qt1, eb)
+
+        case (S.Tm.Pair(_, f, s), Val.Sigma(_, t1, t2)) =>
+          val ef = check(f, t1)
+          val es = check(s, t2(ctx.eval(ef)))
+          Tm.Pair(ef, es)
 
         case (S.Tm.Let(_, x, mlty, v, b), _) =>
           val (ev, lty, vlty) = mlty match
@@ -130,6 +138,10 @@ object Elaboration:
           val ea = check(a, Val.Type)
           val eb = check(b, Val.Type)(using ctx.bind(x, ea, ctx.eval(ea)))
           (Tm.Pi(x, ea, eb), Val.Type)
+        case S.Tm.Sigma(_, x, a, b) =>
+          val ea = check(a, Val.Type)
+          val eb = check(b, Val.Type)(using ctx.bind(x, ea, ctx.eval(ea)))
+          (Tm.Sigma(x, ea, eb), Val.Type)
 
         case S.Tm.Lam(_, x, Some(ty), b) =>
           val ety = check(ty, Val.Type)
@@ -143,6 +155,8 @@ object Elaboration:
           )
         case S.Tm.Lam(_, _, _, _) => err("cannot infer unannotated lambda")
 
+        case S.Tm.Pair(_, _, _) => err("cannot infer pair without type")
+
         case S.Tm.App(_, f, a) =>
           val (ef, fty) = infer(f)
           forceAll(fty) match
@@ -150,6 +164,19 @@ object Elaboration:
               val ea = check(a, pty)
               (Tm.App(ef, ea), rty(ctx.eval(ea)))
             case _ => err(s"cannot apply expression of type ${ctx.pretty(fty)}")
+
+        case S.Tm.Proj(_, p, s) =>
+          val (es, sty) = infer(s)
+          forceAll(sty) match
+            case Val.Sigma(_, pty, rty) =>
+              p match
+                case S.ProjType.Fst => (Tm.Proj(ProjType.Fst, es), pty)
+                case S.ProjType.Snd =>
+                  (Tm.Proj(ProjType.Snd, es), rty(fst(ctx.eval(es))))
+            case _ =>
+              err(
+                s"cannot project out of expression of type ${ctx.pretty(sty)}"
+              )
 
   // elaboration
   private def elaborate(defn: S.Def): Def =

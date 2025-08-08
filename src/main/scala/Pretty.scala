@@ -15,6 +15,13 @@ object Pretty:
       s"($x : ${pretty(t)}) -> ${prettyPi(b)(using bx :: ns)}"
     case rest => pretty(rest)
 
+  private def prettySigma(tm: Ty)(using ns: List[Bind]): String = tm match
+    case Tm.Sigma(Bind.DontBind, t, b) =>
+      s"${prettyParen(t, true)} ** ${prettySigma(b)(using Bind.DontBind :: ns)}"
+    case Tm.Sigma(bx @ Bind.DoBind(x), t, b) =>
+      s"($x : ${pretty(t)}) ** ${prettySigma(b)(using bx :: ns)}"
+    case rest => pretty(rest)
+
   private def prettyLam(tm: Tm)(using ns: List[Bind]): String =
     def go(tm: Tm, first: Boolean = false)(using ns: List[Bind]): String =
       tm match
@@ -32,6 +39,7 @@ object Pretty:
       case Tm.Global(_, _)     => pretty(tm)
       case Tm.App(_, _) if app => pretty(tm)
       case Tm.Type             => pretty(tm)
+      case Tm.Pair(_, _)       => pretty(tm)
       case Tm.Wk(tm)           => prettyParen(tm, app)(using ns.tail)
       case _                   => s"(${pretty(tm)})"
 
@@ -54,5 +62,14 @@ object Pretty:
     case Tm.Pi(_, _, _)  => prettyPi(tm)
     case Tm.Lam(_, _, _) => prettyLam(tm)
     case Tm.App(_, _)    => prettyApp(tm)
+
+    case Tm.Sigma(_, _, _) => prettySigma(tm)
+    case Tm.Proj(p, t)     => s"$p ${prettyParen(t)}"
+    case Tm.Pair(_, _)     =>
+      def flatten(t: Tm): List[Tm] = t match
+        case Tm.Pair(f, s) => f :: flatten(s)
+        case t             => List(t)
+      val parts = flatten(tm)
+      s"(${parts.map(pretty).mkString(", ")})"
 
     case Tm.Wk(tm) => pretty(tm)(using ns.tail)

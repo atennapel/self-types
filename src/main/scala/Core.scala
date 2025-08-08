@@ -8,6 +8,13 @@ object Core:
 
   type Defs = List[Def]
 
+  enum ProjType:
+    case Fst
+    case Snd
+    override def toString: String = this match
+      case Fst => "fst"
+      case snd => "snd"
+
   type Ty = Tm
   enum Tm:
     case Var(ix: Ix)
@@ -19,6 +26,10 @@ object Core:
     case Pi(name: Bind, ty: Ty, body: Ty)
     case Lam(name: Bind, ty: Ty, body: Tm)
     case App(fn: Tm, arg: Tm)
+
+    case Sigma(name: Bind, ty: Ty, body: Ty)
+    case Proj(proj: ProjType, scrut: Tm)
+    case Pair(fst: Tm, snd: Tm)
 
     case Wk(tm: Tm)
 
@@ -35,6 +46,9 @@ object Core:
       case Pi(x, ty, b)     => s"(($x : $ty) -> $b)"
       case Lam(x, ty, b)    => s"(\\($x : $ty) => $b)"
       case App(fn, arg)     => s"($fn $arg)"
+      case Sigma(x, ty, b)  => s"(($x : $ty) ** $b)"
+      case Proj(p, t)       => s"($p $t)"
+      case Pair(f, s)       => s"($f, $s)"
       case Wk(tm)           => s"Wk11($tm)"
 
   enum Locals:
@@ -75,19 +89,22 @@ object Core:
   enum Spine:
     case Empty
     case App(sp: Spine, arg: Val)
+    case Proj(sp: Spine, proj: ProjType)
 
     def size: Int =
       @tailrec
       def go(acc: Int, sp: Spine): Int = sp match
-        case Empty      => acc
-        case App(sp, _) => go(acc + 1, sp)
+        case Empty       => acc
+        case App(sp, _)  => go(acc + 1, sp)
+        case Proj(sp, _) => go(acc + 1, sp)
       go(0, this)
 
     def reverse: Spine =
       @tailrec
       def go(acc: Spine, sp: Spine): Spine = sp match
-        case Empty      => acc
-        case App(sp, v) => go(App(acc, v), sp)
+        case Empty       => acc
+        case App(sp, v)  => go(App(acc, v), sp)
+        case Proj(sp, p) => go(Proj(acc, p), sp)
       go(Empty, this)
 
     def isEmpty: Boolean = this match
@@ -107,6 +124,9 @@ object Core:
 
     case Pi(name: Bind, ty: VTy, body: Clos)
     case Lam(name: Bind, ty: VTy, body: Clos)
+
+    case Sigma(name: Bind, ty: VTy, body: Clos)
+    case Pair(fst: Val, snd: Val)
 
     case Type
 

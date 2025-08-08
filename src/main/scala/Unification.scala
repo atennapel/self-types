@@ -16,6 +16,8 @@ object Unification:
       case (Spine.Empty, Spine.Empty)               => ()
       case (Spine.App(sp1, a1), Spine.App(sp2, a2)) =>
         unify(top1, sp1, top2, sp2); unify(a1, a2)
+      case (Spine.Proj(sp1, p1), Spine.Proj(sp2, p2)) if p1 == p2 =>
+        unify(top1, sp1, top2, sp2)
       case _ =>
         err(
           s"spine mismatch ${quote(top1, UnfoldNone)} ~ ${quote(top2, UnfoldNone)}"
@@ -32,6 +34,8 @@ object Unification:
 
       case (Val.Pi(_, ty1, b1), Val.Pi(_, ty2, b2)) =>
         unify(ty1, ty2); goClos(b1, b2)
+      case (Val.Sigma(_, ty1, b1), Val.Sigma(_, ty2, b2)) =>
+        unify(ty1, ty2); goClos(b1, b2)
 
       case (Val.Lam(_, _, b1), Val.Lam(_, _, b2)) => goClos(b1, b2)
       case (Val.Lam(_, _, b), f)                  =>
@@ -40,6 +44,10 @@ object Unification:
       case (f, Val.Lam(_, _, b)) =>
         val v = Var1(lvl)
         unify(app(f, v), b(v))(using lvl + 1)
+
+      case (Val.Pair(f1, s1), Val.Pair(f2, s2)) => unify(f1, f2); unify(s1, s2)
+      case (Val.Pair(f, s), t) => unify(f, fst(t)); unify(s, snd(t))
+      case (t, Val.Pair(f, s)) => unify(fst(t), f); unify(snd(t), s)
 
       case (Val.Unfold(h1, sp1, v1), Val.Unfold(h2, sp2, v2)) =>
         try

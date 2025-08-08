@@ -24,10 +24,10 @@ object Parser:
       case Token.Symbol(_, pos)     => pos
       case Token.Number(_, pos)     => pos
 
-  private val keywords: Set[String] = Set("def", "let", "Type")
-  private val symbols1: Set[Char] = Set(':', ';', '=', '\\', '(', ')')
+  private val keywords: Set[String] = Set("def", "let", "Type", "fst", "snd")
+  private val symbols1: Set[Char] = Set(':', ';', '=', '\\', '(', ')', ',')
   private val symbols2: Map[Char, Set[Char]] =
-    Map('-' -> Set('>'), '=' -> Set('>'))
+    Map('-' -> Set('>'), '=' -> Set('>'), '*' -> Set('*'))
 
   private def tokenize(s: String): Array[Token] =
     var i = 0
@@ -176,8 +176,14 @@ object Parser:
         else if trySymbol("(") then
           val pos = ctx.pos
           val expr = parseExpr()
+          val rest = mutable.ArrayBuffer.empty[(PosInfo, Tm)]
+          while trySymbol(",") do rest += ((ctx.pos, parseExpr()))
           symbol(")")
-          Some(expr)
+          val nested = ((pos, expr) :: rest.toList).reduceRight {
+            case ((_, f), (p, s)) =>
+              (p, Tm.Pair(p, f, s))
+          }
+          Some(nested._2)
         else None
 
   private def parseAtom()(using ctx: Ctx): Tm =
@@ -188,18 +194,24 @@ object Parser:
     debug(s"parseExpr: $ctx")
     if tryKeyword("let") then parseLet()
     else if trySymbol("\\") then parseLam()
+    else if tryKeyword("fst") then Tm.Proj(ctx.pos, ProjType.Fst, parseAtom())
+    else if tryKeyword("snd") then Tm.Proj(ctx.pos, ProjType.Snd, parseAtom())
     else
-      backtrack(piParam()) match
+      backtrack(piSigmaParam()) match
         case None    => apps()
         case Some(p) =>
-          val ps = list(piParam)
-          symbol("->")
+          val ps = list(piSigmaParam)
+          val piOrSigma =
+            if trySymbol("->") then true else { symbol("**"); false }
           val rt = parseExpr()
           (p :: ps).foldRight(rt) { case ((pos, xs, ty), rt) =>
-            xs.foldRight(rt)((x, rt) => Tm.Pi(pos, x, ty, rt))
+            xs.foldRight(rt)((x, rt) =>
+              if piOrSigma then Tm.Pi(pos, x, ty, rt)
+              else Tm.Sigma(pos, x, ty, rt)
+            )
           }
 
-  private def piParam()(using
+  private def piSigmaParam()(using
       ctx: Ctx
   ): Option[(PosInfo, List[Bind], Ty)] =
     if trySymbol("(") then
@@ -229,6 +241,9 @@ object Parser:
     if trySymbol("->") then
       val rt = parseExpr()
       Tm.Pi(pos, Bind.DontBind, expr, rt)
+    else if trySymbol("**") then
+      val rt = parseExpr()
+      Tm.Sigma(pos, Bind.DontBind, expr, rt)
     else expr
 
   private def parseLet()(using ctx: Ctx): Tm =

@@ -1,57 +1,33 @@
-def id (A : Type) (x : A) : A = x
+def Bool : Type = self (b : Bool) => (P : Bool -> Type) -> P True -> P False -> P b
+def True : Bool = in \P t f => t
+def False : Bool = in \P t f => f
+def indBool (P : Bool -> Type) (t : P True) (f : P False) (b : Bool) : P b =
+  out b P t f
 
-def Unit = (A : Type) -> A -> A
-def tt : Unit = id
+def Nat : Type =
+  self (n : Nat) => (P : Nat -> Type) -> P Z -> ((m : Nat) -> P (S m)) -> P n
+def Z : Nat = in \P z s => z
+def S (n : Nat) : Nat = in \P z s => s n
+def indNat (P : Nat -> Type) (z : P Z) (s : (m : Nat) -> P m -> P (S m)) (n : Nat) : P n =
+  out n P z (\m => s m (indNat P z s m))
 
--- test sigma types
-def FoldNatTy (Nat : Type) = (A : Type) (n : Nat) (z : A) (s : A -> A) -> A
+def Vec (n : Nat) (A : Type) : Type =
+  self (v : Vec n A) =>
+  (P : (n : Nat) -> Vec n A -> Type) ->
+  P Z (VNil A) ->
+  ((m : Nat) (hd : A) (tl : Vec m A) -> P (S m) (VCons A m hd tl)) ->
+  P n v
+def VNil (A : Type) : Vec Z A = in \P nil cons => nil
+def VCons (A : Type) (m : Nat) (hd : A) (tl : Vec m A) : Vec (S m) A =
+  in \P nil cons => cons m hd tl
+def indVec (A : Type) (P : (n : Nat) -> Vec n A -> Type)
+  (nil : P Z (VNil A))
+  (cons : (m : Nat) (hd : A) (tl : Vec m A) -> P m tl -> P (S m) (VCons A m hd tl)) (n : Nat) (v : Vec n A) : P n v =
+  out v P nil (\m hd tl => cons m hd tl (indVec A P nil cons m tl))
 
-def NatS =
-  (Nat : Type)
-  (Z : Nat)
-  (S : Nat -> Nat)
-  (foldNat : FoldNatTy Nat)
-  ** Unit
-
-def NatS-Nat (m : NatS) : Type = fst m
-def NatS-Z (m : NatS) : NatS-Nat m = fst (snd m)
-def NatS-S (m : NatS) : NatS-Nat m -> NatS-Nat m = fst (snd (snd m))
-def NatS-foldNat (m : NatS) : FoldNatTy (NatS-Nat m) = fst (snd (snd (snd m)))
-def addS (m : NatS) (a b : NatS-Nat m) = (NatS-foldNat m) (NatS-Nat m) a b (NatS-S m)
-
--- church natural numbers
-def Nat = (A : Type) -> A -> (A -> A) -> A
-def Z : Nat = \A z s => z
-def S (n : Nat) : Nat = \A z s => s (n A z s)
-def foldNat (A : Type) (n : Nat) (z : A) (s : A -> A) : A = n A z s
-
-def NatM : NatS = (Nat, Z, S, foldNat, tt)
-
-def add : Nat -> Nat -> Nat = addS NatM
-
+def add (a b : Nat) : Nat = indNat (\_ => Nat) b (\_ => S) a
 def n0 = Z
 def n1 = S n0
 def n2 = S n1
 def n3 = S n2
-
--- test self types
-def BoolS = (Bool : Type) ** Bool ** Bool ** Unit
-def BoolM : BoolS = in BoolM =>
-  let Bool = fst BoolM;
-  let True = fst (snd BoolM);
-  let False = fst (snd (snd BoolM));
-  (
-    self b => (P : Bool -> Type) -> P True -> P False -> P b,
-    \P t f => t,
-    \P t f => f,
-    tt
-  )
-
-def Bool = fst BoolM
-def True : Bool = fst (snd BoolM)
-def False : Bool = fst (snd (snd BoolM))
-def elimBool (P : Bool -> Type) (t : P True) (f : P False) (b : Bool) : P b = b P t f
-def if (A : Type) (b : Bool) (t f : A) : A = elimBool (\_ => A) t f b
-
--- main will be normalized and displayed
-def main = add n3 n3
+-- def main = add n3 n3

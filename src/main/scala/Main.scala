@@ -15,10 +15,10 @@ object Main:
     }
     println()
     State.getGlobal(Common.Name("main")) match
-      case None                                    => ()
-      case Some(State.GlobalEntry(_, tm, _, _, _)) =>
+      case Some(State.GlobalEntry(_, _, _, Some((tm, _)))) =>
         val nf = Evaluation.nf(tm)
         println(Pretty.pretty(nf))
+      case _ => ()
 
   // helpers
   private def parse(text: String): Surface.Defs =

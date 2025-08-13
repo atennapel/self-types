@@ -1,4 +1,5 @@
 import Common.*
+import Common.Bind.*
 import Debug.debug
 import Core.*
 import Evaluation.*
@@ -59,12 +60,9 @@ object Elaboration:
     action(using ctx.enter(pos))
 
   // checking
-  private def check(tm: S.Tm, ty: VTy)(using ctx: Ctx): Tm =
-    check(tm, ty, None)
+  private def check(tm: S.Tm, ty: VTy)(using ctx: Ctx): Tm = check(tm, ty, None)
 
-  private def check(tm: S.Tm, ty: VTy, self: Option[Val])(using
-      ctx: Ctx
-  ): Tm =
+  private def check(tm: S.Tm, ty: VTy, self: Option[Val])(using ctx: Ctx): Tm =
     debug(
       s"check $tm : ${ctx.pretty(ty)}${self.map(s => s" with self ${ctx.pretty(s)}").getOrElse("")}"
     )
@@ -82,11 +80,6 @@ object Elaboration:
             case Bind.DontBind  => x2
           Tm.Lam(y, qt1, eb)
 
-        case (S.Tm.Pair(_, f, s), Val.Sigma(_, t1, t2)) =>
-          val ef = check(f, t1, self.map(fst))
-          val es = check(s, t2(ctx.eval(ef)), self.map(snd))
-          Tm.Pair(ef, es)
-
         case (S.Tm.Let(_, x, mlty, v, b), _) =>
           val (ev, lty, vlty) = mlty match
             case None =>
@@ -102,29 +95,14 @@ object Elaboration:
             check(b, ty, self)(using ctx.define(x, lty, vlty, ev, ctx.eval(ev)))
           Tm.Let(x, lty, ev, eb)
 
+        case (S.Tm.In(_, b), Val.Self(_, _, sty)) =>
+          val s =
+            self.getOrElse(err(s"self required for typechecking in-expression"))
+          val eb = check(b, sty(s))
+          Tm.In(eb)
+
         case (S.Tm.Hole(_, x), _) =>
           err(s"checking _${x.getOrElse("")} against ${ctx.pretty(ty)}")
-
-        case (S.Tm.Self(_, x, b), Val.Type) =>
-          val nself =
-            self.getOrElse(err(s"self type can only be checked with a self"))
-          val v = Var1(ctx.lvl)
-          val nctx = ctx.bind(Bind.DoBind(x), ctx.quote(nself), nself)
-          val eb = check(b, Val.Type)(using nctx)
-          Tm.Self(x, eb)
-
-        case (S.Tm.In(_, x, b), Val.Self(_, sty)) =>
-          val v = Var1(ctx.lvl)
-          val (nctx, nself) = self match
-            case Some(s) =>
-              val nctx =
-                ctx.define(x, ctx.quote(ty), ty, ctx.quote(s), s)
-              (nctx, s)
-            case None =>
-              val nctx = ctx.bind(Bind.DoBind(x), ctx.quote(ty), ty)
-              (nctx, v)
-          val eb = check(b, sty(nself), Some(nself))(using nctx)
-          Tm.In(x, eb)
 
         case (tm, _) =>
           val (etm, vty) = infer(tm)
@@ -145,9 +123,8 @@ object Elaboration:
               (Tm.Var(x.toIx(using ctx.lvl)), ty)
             case None =>
               State.getGlobal(x) match
-                case Some(GlobalEntry(_, _, _, v, ty)) =>
-                  (Tm.Global(x, v), ty)
-                case None => err(s"undefined variable $x")
+                case Some(g @ GlobalEntry(_, _, ty, _)) => (Tm.Global(x), ty)
+                case _ => err(s"undefined variable $x")
 
         case S.Tm.Let(_, x, mty, v, b) =>
           val (ev, lty, vlty) = mty match
@@ -168,10 +145,11 @@ object Elaboration:
           val ea = check(a, Val.Type)
           val eb = check(b, Val.Type)(using ctx.bind(x, ea, ctx.eval(ea)))
           (Tm.Pi(x, ea, eb), Val.Type)
-        case S.Tm.Sigma(_, x, a, b) =>
+        case S.Tm.Self(_, x, a, b) =>
           val ea = check(a, Val.Type)
-          val eb = check(b, Val.Type)(using ctx.bind(x, ea, ctx.eval(ea)))
-          (Tm.Sigma(x, ea, eb), Val.Type)
+          val eb =
+            check(b, Val.Type)(using ctx.bind(DoBind(x), ea, ctx.eval(ea)))
+          (Tm.Self(x, ea, eb), Val.Type)
 
         case S.Tm.Lam(_, x, Some(ty), b) =>
           val ety = check(ty, Val.Type)
@@ -185,9 +163,6 @@ object Elaboration:
           )
         case S.Tm.Lam(_, _, _, _) => err("cannot infer unannotated lambda")
 
-        case S.Tm.Pair(_, _, _) =>
-          err("cannot infer pair without expected type")
-
         case S.Tm.App(_, f, a) =>
           val (ef, fty) = infer(f)
           forceAll(fty) match
@@ -196,39 +171,16 @@ object Elaboration:
               (Tm.App(ef, ea), rty(ctx.eval(ea)))
             case _ => err(s"cannot apply expression of type ${ctx.pretty(fty)}")
 
-        case S.Tm.Proj(_, p, s) =>
-          val (es, sty) = infer(s)
-          forceAll(sty) match
-            case Val.Sigma(_, pty, rty) =>
-              p match
-                case S.ProjType.Fst => (Tm.Proj(ProjType.Fst, es), pty)
-                case S.ProjType.Snd =>
-                  (Tm.Proj(ProjType.Snd, es), rty(fst(ctx.eval(es))))
-            case _ =>
-              err(
-                s"cannot project out of expression of type ${ctx.pretty(sty)}"
-              )
-
-        case S.Tm.With(_, tm, self) =>
-          val (eself, vty) = infer(self)
-          val vself = ctx.eval(eself)
-          val etm = check(tm, vty, Some(vself))
-          unify(ctx.eval(etm), vself)
-          (etm, vty)
-
         case S.Tm.Out(_, tm) =>
           val (etm, vty) = infer(tm)
           forceAll(vty) match
-            case Val.Self(x, b) => (Tm.Out(etm), b(ctx.eval(etm)))
-            case _              =>
+            case Val.Self(x, _, b) => (Tm.Out(etm), b(ctx.eval(etm)))
+            case _                 =>
               err(
                 s"cannot call out on expression of type ${ctx.pretty(vty)}"
               )
 
-        case S.Tm.Self(_, _, _) =>
-          err("cannot infer self type without expected type")
-        case S.Tm.In(_, _, _) =>
-          err("cannot infer self type without expected type")
+        case S.Tm.In(_, tm) => err("cannot infer in-expression")
 
   // elaboration
   private def elaborate(defn: S.Def): Def =
@@ -236,17 +188,34 @@ object Elaboration:
     given ctx: Ctx = Ctx.empty.enter(defn.pos)
     val x = defn.name
     if State.nameIsDefined(x) then err(s"duplicate name $x")
-    val (ev, ety, vty) = defn.ty match
+    val (ev, ety) = defn.ty match
       case None =>
         val (ev, vty) = infer(defn.value)
-        (ev, ctx.quote(vty), vty)
+        val vv = ctx.eval(ev)
+        val ety = ctx.quote(vty)
+        State.addGlobal(GlobalEntry(x, ety, vty, Some((ev, vv))))
+        (ev, ety)
       case Some(ty) =>
         val ety = check(ty, Val.Type)
         val vty = ctx.eval(ety)
-        val ev = check(defn.value, vty)
-        (ev, ety, vty)
-    val vv = ctx.eval(ev)
-    State.addGlobal(GlobalEntry(x, ev, ety, vv, vty))
+        val self = Val.Unfold(UnfoldHead.Global(x), Spine.Empty)
+        val ev = check(defn.value, vty, Some(self))
+        val vv = ctx.eval(ev)
+        State.updateGlobalValue(x, ev, vv)
+        (ev, ety)
     Def(x, ety, ev)
 
-  def elaborate(ds: S.Defs): Defs = ds.map(elaborate)
+  private def prepareElaboration(defn: S.Def): Unit =
+    debug(s"prepareElaboration $defn")
+    given ctx: Ctx = Ctx.empty.enter(defn.pos)
+    defn.ty match
+      case None     => ()
+      case Some(ty) =>
+        val x = defn.name
+        val ety = check(ty, Val.Type)
+        val vty = ctx.eval(ety)
+        State.addGlobal(GlobalEntry(x, ety, vty, None))
+
+  def elaborate(ds: S.Defs): Defs =
+    ds.foreach(prepareElaboration)
+    ds.map(elaborate)

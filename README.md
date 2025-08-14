@@ -10,7 +10,8 @@ References:
 - https://github.com/AndrasKovacs/elaboration-zoo
 
 TODO:
+- Case without scrutinee
 - Fix looping issues
-- Add case splits on datatypes
 - Sprinkle some sugar around
 - Consider fix types or nominal types
+- Operators

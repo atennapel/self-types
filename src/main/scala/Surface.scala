@@ -22,6 +22,13 @@ object Surface:
     case In(posInfo: PosInfo, tm: Tm)
     case Out(posInfo: PosInfo, tm: Tm)
 
+    case Case(
+        posInfo: PosInfo,
+        scrut: Tm,
+        returnty: Option[Ty],
+        cases: List[(PosInfo, Name, Tm)]
+    )
+
     case Hole(posInfo: PosInfo, name: Option[Name])
 
     def pos: PosInfo = this match
@@ -34,6 +41,7 @@ object Surface:
       case Tm.Self(pos, _, _, _)   => pos
       case Tm.In(pos, _)           => pos
       case Tm.Out(pos, _)          => pos
+      case Tm.Case(pos, _, _, _)   => pos
       case Tm.Hole(pos, _)         => pos
 
     override def toString: String = this match
@@ -52,5 +60,9 @@ object Surface:
       case Self(_, x, Some(t), b)        => s"(self ($x : $t) => $b)"
       case In(_, t)                      => s"(in $t)"
       case Out(_, t)                     => s"(out $t)"
-      case Hole(_, None)                 => s"_"
-      case Hole(_, Some(x))              => s"_$x"
+      case Case(_, s, ty, cs)            =>
+        val sty = ty.fold("")(t => s" : $t")
+        val scases = cs.map((_, x, b) => s"$x => $b").mkString(" | ")
+        s"case $s$sty { $scases }"
+      case Hole(_, None)    => s"_"
+      case Hole(_, Some(x)) => s"_$x"

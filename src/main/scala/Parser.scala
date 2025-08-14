@@ -25,8 +25,9 @@ object Parser:
       case Token.Number(_, pos)     => pos
 
   private val keywords: Set[String] =
-    Set("def", "let", "Type", "self", "in", "out")
-  private val symbols1: Set[Char] = Set(':', ';', '=', '\\', '(', ')', '{', '}')
+    Set("def", "let", "Type", "self", "in", "out", "case")
+  private val symbols1: Set[Char] =
+    Set(':', ';', '=', '\\', '(', ')', '{', '}', '|')
   private val symbols2: Map[Char, Set[Char]] =
     Map('-' -> Set('>'), '=' -> Set('>'))
 
@@ -128,22 +129,25 @@ object Parser:
     symbol("=")
     val prebody = parseExpr()
     val (ty, body) = prety match
-      case None =>
-        val body = ps.foldRight(prebody) { case ((p, xs, i, ty), b) =>
-          xs.foldRight(b)((x, b) => Tm.Lam(p, x, i, ty, b))
-        }
-        (None, body)
+      case None      => (None, createLam(ps, prebody))
       case Some(rty) =>
         val ty = createPi(ps, rty)
-        val body = ps.foldRight(prebody) { case ((p, xs, i, _), b) =>
-          xs.foldRight(b)((x, b) => Tm.Lam(p, x, i, None, b))
-        }
+        val body = createLam(ps, prebody, true)
         (Some(ty), body)
     (pos, x, ty, body)
 
-  private def createPi(ps: List[DefParam], rty: Ty)(using
-      ctx: Ctx
+  private def createLam(
+      ps: List[DefParam],
+      body: Tm,
+      eraseType: Boolean = false
   ): Tm =
+    ps.foldRight(body) { case ((p, xs, i, ty), b) =>
+      xs.foldRight(b)((x, b) =>
+        Tm.Lam(p, x, i, if eraseType then None else ty, b)
+      )
+    }
+
+  private def createPi(ps: List[DefParam], rty: Ty)(using ctx: Ctx): Tm =
     ps.foldRight(rty) { case ((p, xs, i, opty), rty) =>
       val pty = opty.getOrElse(hole)
       xs.foldRight(rty) { (x, rty) => Tm.Pi(p, x, i, pty, rty) }
@@ -194,6 +198,15 @@ object Parser:
     debug(s"parseExpr: $ctx")
     if tryKeyword("let") then parseLet()
     else if trySymbol("\\") then parseLam()
+    else if tryKeyword("case") then
+      val pos = ctx.pos
+      val scrut = parseAtom()
+      val ty = if trySymbol(":") then Some(parseAtom()) else None
+      symbol("{")
+      trySymbol("|")
+      val cs = parseCases()
+      symbol("}")
+      Tm.Case(pos, scrut, ty, cs)
     else if tryKeyword("self") then
       val pos = ctx.pos
       if trySymbol("(") then
@@ -227,6 +240,7 @@ object Parser:
   private def piParam()(using
       ctx: Ctx
   ): Option[(PosInfo, List[Bind], Icit, Ty)] =
+    debug(s"piParam: $ctx")
     if trySymbol("(") then
       if trySymbol(")") then None
       else
@@ -268,6 +282,7 @@ object Parser:
     else expr
 
   private def parseArg()(using ctx: Ctx): Option[(Tm, Icit)] =
+    debug(s"parseArg: $ctx")
     if trySymbol("{") then
       val a = parseExpr()
       symbol("}")
@@ -275,18 +290,36 @@ object Parser:
     else tryParseAtom().map(a => (a, Icit.Expl))
 
   private def parseLet()(using ctx: Ctx): Tm =
+    debug(s"parseLet: $ctx")
     val (pos, x, ty, value) = parseDefPart()
     symbol(";")
     val body = parseExpr()
     Tm.Let(pos, x, ty, value, body)
 
   private def parseLam()(using ctx: Ctx): Tm =
+    debug(s"parseLam: $ctx")
     val ps = parseParams()
     symbol("=>")
     val body = parseExpr()
     ps.foldRight(body) { case ((p, xs, i, ty), b) =>
       xs.foldRight(b)((x, b) => Tm.Lam(p, x, i, ty, b))
     }
+
+  private def parseCases()(using ctx: Ctx): List[(PosInfo, Name, Tm)] =
+    debug(s"parseCases: $ctx")
+    val first = parseCase()
+    val rest = mutable.ArrayBuffer.empty[(PosInfo, Name, Tm)]
+    while trySymbol("|") do rest += parseCase()
+    first :: rest.toList
+
+  private def parseCase()(using ctx: Ctx): (PosInfo, Name, Tm) =
+    debug(s"parseCase: $ctx")
+    val x = name()
+    val pos = ctx.pos
+    val ps = parseParams()
+    symbol("=>")
+    val b = parseExpr()
+    (pos, x, createLam(ps, b))
 
   // parsers
   private def keyword(kw: String)(using ctx: Ctx): Unit =

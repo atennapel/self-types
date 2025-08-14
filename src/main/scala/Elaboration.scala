@@ -29,6 +29,7 @@ object Elaboration:
 
   // metas
   private def closeTy(ty: Ty)(implicit ctx: Ctx): Ty =
+    @tailrec
     def go(ls: Locals, xs: List[Bind], ty: Ty): Ty = (ls, xs) match
       case (Locals.Empty, Nil)                     => ty
       case (Locals.Def(ls, a, v), DoBind(x) :: xs) =>
@@ -62,6 +63,16 @@ object Elaboration:
       case Tm.Lam(_, Impl, _, _) => inp
       case _                     => insertPi(inp)
 
+  private def freshMetaIgnoreDeps(ty: VTy)(using ctx: Ctx): Tm =
+    def go(ctx: Ctx, ty: VTy): Tm = forceAll(ty) match
+      case Val.Pi(_, i, a, b) =>
+        val qa = ctx.quote(a)
+        val body =
+          go(ctx.bind(DontBind, i, qa, a, skip = true), b(Var1(ctx.lvl)))
+        Tm.Lam(DontBind, i, qa, body)
+      case _ => Tm.AppPruning(freshMetaId(ty)(using ctx), ctx.pruning)
+    go(ctx, ty)
+
   // coercion
   private def coe(t: Tm, a1: VTy, a2: VTy)(using ctx: Ctx): Tm =
     unify(a1, a2)
@@ -75,6 +86,14 @@ object Elaboration:
 
   private def addHole(mx: Option[Name], tm: Tm, ty: VTy)(using ctx: Ctx): Unit =
     mx.foreach(x => if (!State.addHole(x, tm, ty)) err(s"duplicate hole _$x"))
+
+  private def getSelfBody(vty: VTy, arg: Tm)(using ctx: Ctx): VTy =
+    forceAll(vty) match
+      case Val.Self(_, _, b) => b(ctx.eval(arg))
+      case _                 =>
+        err(
+          s"cannot call out on expression of type ${ctx.pretty(vty)}"
+        )
 
   // checking
   private def check(tm: S.Tm, ty: VTy)(using ctx: Ctx): Tm = check(tm, ty, None)
@@ -224,14 +243,54 @@ object Elaboration:
 
         case S.Tm.Out(_, tm) =>
           val (etm, vty) = infer(tm)
-          forceAll(vty) match
-            case Val.Self(x, _, b) => (Tm.Out(etm), b(ctx.eval(etm)))
-            case _                 =>
-              err(
-                s"cannot call out on expression of type ${ctx.pretty(vty)}"
-              )
+          val rty = getSelfBody(vty, etm)
+          (Tm.Out(etm), rty)
 
         case S.Tm.In(_, tm) => err("cannot infer in-expression")
+
+        case S.Tm.Case(_, scrut, ty, cs) =>
+          val (escrut, vty) = infer(scrut)
+          val vselfty = getSelfBody(vty, escrut)
+          val (rty, vrty, i) = forceAll(vselfty) match
+            case Val.Pi(_, i, expty, b) =>
+              val arg = ty match
+                case Some(ty) => check(ty, expty)
+                case None     => freshMetaIgnoreDeps(expty)
+              val varg = ctx.eval(arg)
+              (arg, b(varg), i)
+            case _ =>
+              err(
+                s"expected pi-type for case scrutinee type but got ${ctx.pretty(vselfty)}"
+              )
+          val xs = cs.map((_, x, _) => x)
+          if xs.toSet.size != xs.size then err(s"duplicate constructor in case")
+          val map = cs.map((pos, x, b) => x -> (pos, b)).toMap
+          val etm = Tm.App(Tm.Out(escrut), rty, i)
+          elaborateCases(map, etm, vrty)
+
+  @tailrec
+  private def elaborateCases(
+      cs: Map[Name, (PosInfo, S.Tm)],
+      tm: Tm,
+      dty: VTy
+  )(using
+      ctx: Ctx
+  ): (Tm, VTy) =
+    forceAll(dty) match
+      case Val.Pi(bx, i, a, b) =>
+        val x = bx match
+          case DoBind(x) => x
+          case DontBind  =>
+            err(s"case requires named parameters for the data type")
+        cs.get(x) match
+          case None              => err(s"missing constructor $x in case")
+          case Some((pos, body)) =>
+            val ebody = check(body, a)(using ctx.enter(pos))
+            val vbody = ctx.eval(ebody)
+            val ntm = Tm.App(tm, ebody, i)
+            elaborateCases(cs - x, ntm, b(vbody))
+      case _ if cs.nonEmpty => err(s"too many constructors in case")
+      case _                => (tm, dty)
 
   // elaboration
   private def elaborate(defn: S.Def): Def =

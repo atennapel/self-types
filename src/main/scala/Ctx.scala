@@ -33,14 +33,14 @@ final case class Ctx(
 
   def lookup(x: Name): Option[NameInfo] = names.get(x)
 
-  def bind(x: Bind, i: Icit, ty: Ty, vty: VTy): Ctx =
+  def bind(x: Bind, i: Icit, ty: Ty, vty: VTy, skip: Boolean = false): Ctx =
     Ctx(
       lvl + 1,
       Env.Ext(env, Var1(lvl)),
       Locals.Bind(locals, ty, i),
       x :: binds,
       addName(x, NameInfo(lvl, vty)),
-      Prune.Bind(i) :: pruning,
+      (if skip then Prune.Skip else Prune.Bind(i)) :: pruning,
       pos
     )
 

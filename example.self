@@ -4,6 +4,9 @@ def False : Bool = in \P t f => f
 def indBool (P : Bool -> Type) (t : P True) (f : P False) (b : Bool) : P b =
   out b P t f
 
+def if (A : Type) (b : Bool) (t f : A) : A = indBool (\_ => A) t f b
+def not (b : Bool) : Bool = if Bool b False True
+
 def Nat : Type =
   self (n : Nat) => (P : Nat -> Type) -> P Z -> ((m : Nat) -> P (S m)) -> P n
 def Z : Nat = in \P z s => z
@@ -25,9 +28,24 @@ def indVec (A : Type) (P : (n : Nat) -> Vec n A -> Type)
   (cons : (m : Nat) (hd : A) (tl : Vec m A) -> P m tl -> P (S m) (VCons A m hd tl)) (n : Nat) (v : Vec n A) : P n v =
   out v P nil (\m hd tl => cons m hd tl (indVec A P nil cons m tl))
 
+def Id (A : Type) (x y : A) : Type =
+  self (id : Id A x y) => (P : (y : A) -> Id A x y -> Type) -> P x (Refl A x) -> P y id
+def Refl (A : Type) (x : A) : Id A x x = in \P x => x
+
+def rewrite (A : Type) (x y : A) (P : A -> Type) (p : Id A x y) (v : P x) : P y =
+  out p (\y _ => P y) v
+
+-- testing proofs
+def notnot (b : Bool) : Id Bool (not (not b)) b =
+  indBool (\b => Id Bool (not (not b)) b)
+    (Refl Bool True)
+    (Refl Bool False)
+    b
+
+-- testing normalization
 def add (a b : Nat) : Nat = indNat (\_ => Nat) b (\_ => S) a
 def n0 = Z
 def n1 = S n0
 def n2 = S n1
 def n3 = S n2
--- def main = add n3 n3
+-- def main = add n3 n3 -- loops! :(

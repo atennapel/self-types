@@ -10,6 +10,8 @@ References:
 - https://github.com/AndrasKovacs/elaboration-zoo
 
 TODO:
-- Implicit parameters
+- Pruning
+- Fix looping issues
+- Add "split" syntax for case splits on datatypes
 - Sprinkle some sugar around
 - Consider fix types or nominal types

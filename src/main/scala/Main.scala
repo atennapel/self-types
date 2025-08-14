@@ -13,6 +13,12 @@ object Main:
         s"def ${d.name} : ${Pretty.pretty(d.ty)} = ${Pretty.pretty(d.value)}"
       )
     }
+    State.getMetas().foreach { case (m, ty, ov) =>
+      val sty = Ctx.empty.pretty(ty)
+      ov.map(v => Ctx.empty.pretty(v)) match
+        case None     => println(s"meta ?$m : $sty")
+        case Some(sv) => println(s"meta ?$m : $sty = $sv")
+    }
     println()
     State.getGlobal(Common.Name("main")) match
       case Some(State.GlobalEntry(_, _, _, Some((tm, _)))) =>

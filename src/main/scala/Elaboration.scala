@@ -1,11 +1,14 @@
 import Common.*
 import Common.Bind.*
+import Common.Icit.*
 import Debug.debug
 import Core.*
 import Evaluation.*
 import Ctx.*
 import Surface as S
 import State.GlobalEntry
+
+import scala.annotation.tailrec
 
 object Elaboration:
   class ElaborationError(val pos: PosInfo, val msg: String)
@@ -24,40 +27,54 @@ object Elaboration:
           s"failed to unify ${ctx.pretty(a)} ~ ${ctx.pretty(b)}: ${ue.msg}"
         )
 
+  // metas
+  private def closeTy(ty: Ty)(implicit ctx: Ctx): Ty =
+    def go(ls: Locals, xs: List[Bind], ty: Ty): Ty = (ls, xs) match
+      case (Locals.Empty, Nil)                     => ty
+      case (Locals.Def(ls, a, v), DoBind(x) :: xs) =>
+        go(ls, xs, Tm.Let(x, a, v, ty))
+      case (Locals.Bind(ls, a, i), x :: xs) => go(ls, xs, Tm.Pi(x, i, a, ty))
+      case _                                => impossible()
+    go(ctx.locals, ctx.binds, ty)
+
+  private def freshMetaId(ty: VTy)(using ctx: Ctx): MetaId =
+    val qa = closeTy(ctx.quote(ty, QuoteOption.UnfoldNone))
+    val vqa = eval(qa)(using Env.Empty)
+    val m = State.newMeta(vqa)
+    debug(s"freshMetaId ?$m : ${ctx.pretty(ty)}")
+    m
+
+  private def freshMeta(ty: VTy)(using ctx: Ctx): Tm =
+    Tm.AppPruning(freshMetaId(ty), ctx.pruning)
+
+  private def insertPi(inp: (Tm, VTy))(implicit ctx: Ctx): (Tm, VTy) =
+    @tailrec
+    def go(tm: Tm, ty: VTy): (Tm, VTy) =
+      forceAll(ty) match
+        case Val.Pi(y, Impl, a, b) =>
+          val m = freshMeta(a)
+          go(Tm.App(tm, m, Impl), b(ctx.eval(m)))
+        case _ => (tm, ty)
+    go(inp._1, inp._2)
+
+  private def insert(inp: (Tm, VTy))(implicit ctx: Ctx): (Tm, VTy) =
+    inp._1 match
+      case Tm.Lam(_, Impl, _, _) => inp
+      case _                     => insertPi(inp)
+
   // coercion
   private def coe(t: Tm, a1: VTy, a2: VTy)(using ctx: Ctx): Tm =
-    def go(t: Tm, a1: VTy, a2: VTy)(using ctx: Ctx): Option[Tm] =
-      debug(s"coe ${ctx.pretty(t)} from ${ctx.pretty(a1)} to ${ctx.pretty(a2)}")
-      (forceAll(a1), forceAll(a2)) match
-        case (Val.Pi(x, a1, b1), Val.Pi(_, a2, b2)) =>
-          given ctx2: Ctx = ctx.bind(x, ctx.quote(a2), a2)
-          go(Tm.Var(ix0), a2, a1) match
-            case None =>
-              go(
-                Tm.App(Tm.Wk(t), Tm.Var(ix0)),
-                b1(ctx2.eval(Tm.Var(ix0))),
-                b2(Var1(ctx.lvl))
-              ).map(b => Tm.Lam(x, ctx.quote(a2), b))
-            case Some(coev0) =>
-              Some(
-                Tm.Lam(
-                  x,
-                  ctx.quote(a2),
-                  coe(
-                    Tm.App(Tm.Wk(t), coev0),
-                    b1(ctx2.eval(coev0)),
-                    b2(Var1(ctx.lvl))
-                  )
-                )
-              )
-        case (_, _) => unify(a1, a2); None
-    go(t, a1, a2).getOrElse(t)
+    unify(a1, a2)
+    t
 
   // helpers
   private inline def enter[A](pos: PosInfo)(inline action: Ctx ?=> A)(using
       ctx: Ctx
   ): A =
     action(using ctx.enter(pos))
+
+  private def addHole(mx: Option[Name], tm: Tm, ty: VTy)(using ctx: Ctx): Unit =
+    mx.foreach(x => if (!State.addHole(x, tm, ty)) err(s"duplicate hole _$x"))
 
   // checking
   private def check(tm: S.Tm, ty: VTy)(using ctx: Ctx): Tm = check(tm, ty, None)
@@ -68,17 +85,22 @@ object Elaboration:
     )
     enter(tm.pos):
       (tm, forceAll(ty)) match
-        case (S.Tm.Lam(_, x, ma, b), Val.Pi(x2, t1, t2)) =>
+        case (S.Tm.Lam(_, x, i, ma, b), Val.Pi(x2, i2, t1, t2)) if i == i2 =>
           ma.foreach { sty => unify(ctx.eval(check(sty, Val.Type)), t1) }
           val qt1 = ctx.quote(t1)
           val v = Var1(ctx.lvl)
-          val nself = self.map(s => app(s, v))
+          val nself = self.map(s => app(s, v, i))
           val eb =
-            check(b, t2(v), nself)(using ctx.bind(x, qt1, t1))
+            check(b, t2(v), nself)(using ctx.bind(x, i, qt1, t1))
           val y = x match
             case Bind.DoBind(_) => x
             case Bind.DontBind  => x2
-          Tm.Lam(y, qt1, eb)
+          Tm.Lam(y, i, qt1, eb)
+
+        case (tm, Val.Pi(x, Impl, a, b)) =>
+          val qa = ctx.quote(a)
+          val body = check(tm, b(Var1(ctx.lvl)))(using ctx.insert(x, Impl, qa))
+          Tm.Lam(x, Impl, qa, body)
 
         case (S.Tm.Let(_, x, mlty, v, b), _) =>
           val (ev, lty, vlty) = mlty match
@@ -101,11 +123,13 @@ object Elaboration:
           val eb = check(b, sty(s))
           Tm.In(eb)
 
-        case (S.Tm.Hole(_, x), _) =>
-          err(s"checking _${x.getOrElse("")} against ${ctx.pretty(ty)}")
+        case (S.Tm.Hole(_, mx), _) =>
+          val tm = freshMeta(ty)
+          mx.foreach(x => State.addHole(x, tm, ty))
+          tm
 
         case (tm, _) =>
-          val (etm, vty) = infer(tm)
+          val (etm, vty) = insert(infer(tm))
           coe(etm, vty, ty)
 
   // inference
@@ -113,7 +137,11 @@ object Elaboration:
     debug(s"infer $tm")
     enter(tm.pos):
       tm match
-        case S.Tm.Hole(_, _) => err("cannot infer hole")
+        case S.Tm.Hole(_, mx) =>
+          val ty = ctx.eval(freshMeta(Val.Type))
+          val tm = freshMeta(ty)
+          mx.foreach(x => State.addHole(x, tm, ty))
+          (tm, ty)
 
         case S.Tm.Type(_) => (Tm.Type, Val.Type)
 
@@ -141,35 +169,53 @@ object Elaboration:
             infer(b)(using ctx.define(x, lty, vlty, ev, ctx.eval(ev)))
           (Tm.Let(x, lty, ev, eb), rty)
 
-        case S.Tm.Pi(_, x, a, b) =>
+        case S.Tm.Pi(_, x, i, a, b) =>
           val ea = check(a, Val.Type)
-          val eb = check(b, Val.Type)(using ctx.bind(x, ea, ctx.eval(ea)))
-          (Tm.Pi(x, ea, eb), Val.Type)
+          val eb = check(b, Val.Type)(using ctx.bind(x, i, ea, ctx.eval(ea)))
+          (Tm.Pi(x, i, ea, eb), Val.Type)
         case S.Tm.Self(_, x, a, b) =>
           val ea = check(a, Val.Type)
           val eb =
-            check(b, Val.Type)(using ctx.bind(DoBind(x), ea, ctx.eval(ea)))
+            check(b, Val.Type)(using
+              ctx.bind(DoBind(x), Expl, ea, ctx.eval(ea))
+            )
           (Tm.Self(x, ea, eb), Val.Type)
 
-        case S.Tm.Lam(_, x, Some(ty), b) =>
-          val ety = check(ty, Val.Type)
+        case S.Tm.Lam(_, x, i, mty, b) =>
+          val ety = mty match
+            case None     => freshMeta(Val.Type)
+            case Some(ty) => check(ty, Val.Type)
           val vty = ctx.eval(ety)
-          val ctx2 = ctx.bind(x, ety, vty)
-          val (eb, vrt) = infer(b)(using ctx2)
+          val ctx2 = ctx.bind(x, i, ety, vty)
+          val (eb, vrt) = insert(infer(b)(using ctx2))
           val qrt = ctx2.quote(vrt)
           (
-            Tm.Lam(x, ety, eb),
-            Val.Pi(x, vty, Clos.Clos(ctx.env, qrt))
+            Tm.Lam(x, i, ety, eb),
+            Val.Pi(x, i, vty, Clos.Clos(ctx.env, qrt))
           )
-        case S.Tm.Lam(_, _, _, _) => err("cannot infer unannotated lambda")
 
-        case S.Tm.App(_, f, a) =>
-          val (ef, fty) = infer(f)
-          forceAll(fty) match
-            case Val.Pi(_, pty, rty) =>
-              val ea = check(a, pty)
-              (Tm.App(ef, ea), rty(ctx.eval(ea)))
-            case _ => err(s"cannot apply expression of type ${ctx.pretty(fty)}")
+        case S.Tm.App(_, f, a, i) =>
+          val (ef, fty) = i match
+            case Impl => infer(f)
+            case Expl => insertPi(infer(f))
+          val (pty, rty) = forceAll(fty) match
+            case Val.Pi(_, i2, pty, rty) =>
+              if i != i2 then err(s"icit mismatch in application")
+              (pty, rty)
+            case _ =>
+              val pty = freshMeta(Val.Type)
+              val vpty = ctx.eval(pty)
+              val x = Bind.DoBind(Name("x"))
+              val rty = Clos.Clos(
+                ctx.env,
+                freshMeta(Val.Type)(using
+                  ctx.bind(x, i, pty, vpty)
+                )
+              )
+              unify(fty, Val.Pi(x, i, vpty, rty))
+              (vpty, rty)
+          val ea = check(a, pty)
+          (Tm.App(ef, ea, i), rty(ctx.eval(ea)))
 
         case S.Tm.Out(_, tm) =>
           val (etm, vty) = infer(tm)
@@ -188,34 +234,35 @@ object Elaboration:
     given ctx: Ctx = Ctx.empty.enter(defn.pos)
     val x = defn.name
     if State.nameIsDefined(x) then err(s"duplicate name $x")
-    val (ev, ety) = defn.ty match
-      case None =>
-        val (ev, vty) = infer(defn.value)
-        val vv = ctx.eval(ev)
-        val ety = ctx.quote(vty)
-        State.addGlobal(GlobalEntry(x, ety, vty, Some((ev, vv))))
-        (ev, ety)
-      case Some(ty) =>
-        val ety = check(ty, Val.Type)
-        val vty = ctx.eval(ety)
-        val self = Val.Unfold(UnfoldHead.Global(x), Spine.Empty)
-        val ev = check(defn.value, vty, Some(self))
-        val vv = ctx.eval(ev)
-        State.updateGlobalValue(x, ev, vv)
-        (ev, ety)
+    val (ety, vty) = State.getGlobal(x) match
+      case Some(GlobalEntry(_, ety, vty, _)) => (ety, vty)
+      case _                                 => impossible()
+    val self = Val.Unfold(UnfoldHead.Global(x), Spine.Empty)
+    val ev = check(defn.value, vty, Some(self))
+    val vv = ctx.eval(ev)
+    State.updateGlobalValue(x, ev, vv)
     Def(x, ety, ev)
 
   private def prepareElaboration(defn: S.Def): Unit =
     debug(s"prepareElaboration $defn")
     given ctx: Ctx = Ctx.empty.enter(defn.pos)
-    defn.ty match
-      case None     => ()
-      case Some(ty) =>
-        val x = defn.name
-        val ety = check(ty, Val.Type)
-        val vty = ctx.eval(ety)
-        State.addGlobal(GlobalEntry(x, ety, vty, None))
+    val x = defn.name
+    val ety = defn.ty match
+      case None     => freshMeta(Val.Type)
+      case Some(ty) => check(ty, Val.Type)
+    val vty = ctx.eval(ety)
+    State.addGlobal(GlobalEntry(x, ety, vty, None))
 
   def elaborate(ds: S.Defs): Defs =
     ds.foreach(prepareElaboration)
-    ds.map(elaborate)
+    val res = ds.map(elaborate)
+    val holes = State.getHoles().map { case State.HoleEntry(ctx, x, tm, ty) =>
+      s"_$x : ${ctx.pretty(ty)} = ${ctx.pretty(tm)}"
+    }
+    if holes.nonEmpty then
+      err(s"there are holes:\n${holes.mkString("\n")}")(using Ctx.empty)
+    val ums =
+      State.unsolvedMetas().map((m, ty) => s"?$m : ${Ctx.empty.pretty(ty)}")
+    if ums.nonEmpty then
+      err(s"there are unsolved metas:\n${ums.mkString("\n")}")(using Ctx.empty)
+    res

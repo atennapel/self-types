@@ -8,6 +8,7 @@ final case class Ctx(
     locals: Locals,
     binds: List[Bind],
     names: Ctx.NameMap,
+    pruning: Pruning,
     pos: PosInfo
 ):
   import Ctx.*
@@ -19,11 +20,11 @@ final case class Ctx(
 
   def typeOfLvl(x: Lvl): Ty =
     def go(ls: Locals, i: Int): Ty = ls match
-      case Locals.Empty                      => impossible()
-      case Locals.Def(locs, ty, _) if i == 0 => ty
-      case Locals.Bind(locs, ty) if i == 0   => ty
-      case Locals.Def(ls, _, _)              => go(ls, i - 1)
-      case Locals.Bind(ls, _)                => go(ls, i - 1)
+      case Locals.Empty                       => impossible()
+      case Locals.Def(locs, ty, _) if i == 0  => ty
+      case Locals.Bind(locs, ty, _) if i == 0 => ty
+      case Locals.Def(ls, _, _)               => go(ls, i - 1)
+      case Locals.Bind(ls, _, _)              => go(ls, i - 1)
     go(locals, x.toIx(using lvl).expose)
 
   def bindOfLvl(x: Lvl): Bind = binds.reverse(x.expose)
@@ -32,23 +33,25 @@ final case class Ctx(
 
   def lookup(x: Name): Option[NameInfo] = names.get(x)
 
-  def bind(x: Bind, ty: Ty, vty: VTy): Ctx =
+  def bind(x: Bind, i: Icit, ty: Ty, vty: VTy): Ctx =
     Ctx(
       lvl + 1,
       Env.Ext(env, Var1(lvl)),
-      Locals.Bind(locals, ty),
+      Locals.Bind(locals, ty, i),
       x :: binds,
       addName(x, NameInfo(lvl, vty)),
+      Prune.Bind(i) :: pruning,
       pos
     )
 
-  def insert(x: Bind, ty: Ty): Ctx =
+  def insert(x: Bind, i: Icit, ty: Ty): Ctx =
     Ctx(
       lvl + 1,
       Env.Ext(env, Var1(lvl)),
-      Locals.Bind(locals, ty),
+      Locals.Bind(locals, ty, i),
       x :: binds,
       names,
+      Prune.Bind(i) :: pruning,
       pos
     )
 
@@ -59,6 +62,7 @@ final case class Ctx(
       Locals.Def(locals, ty, v),
       Bind.DoBind(x) :: binds,
       names + (x -> NameInfo(lvl, vty)),
+      Prune.Skip :: pruning,
       pos
     )
 
@@ -69,6 +73,7 @@ final case class Ctx(
       Locals.Def(locals, ty, v),
       Bind.DoBind(x) :: binds,
       names,
+      Prune.Skip :: pruning,
       pos
     )
 
@@ -76,14 +81,14 @@ final case class Ctx(
     Evaluation.quote(v, q)(using lvl)
   def eval(t: Tm): Val = Evaluation.eval(t)(using env)
 
-  def pretty(v: Val, q: QuoteOption = QuoteOption.UnfoldNone): String =
+  def pretty(v: Val, q: QuoteOption = QuoteOption.UnfoldMetas): String =
     Pretty.pretty(Evaluation.quote(v, q)(using lvl))(using binds)
   def pretty(v: Tm): String = Pretty.pretty(v)(using binds)
   def prettyParen1(v: Tm): String = Pretty.prettyParen(v)(using binds)
 
 object Ctx:
-  def empty: Ctx =
-    Ctx(lvl0, Env.Empty, Locals.Empty, Nil, Map.empty, PosInfo.start)
+  val empty: Ctx =
+    Ctx(lvl0, Env.Empty, Locals.Empty, Nil, Map.empty, Nil, PosInfo.start)
 
   final case class NameInfo(lvl: Lvl, ty: VTy)
 

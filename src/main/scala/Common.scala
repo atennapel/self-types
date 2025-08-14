@@ -64,3 +64,31 @@ object Common:
   object Bind:
     def fromString(x: String): Bind =
       if x.startsWith("_") then Bind.DontBind else Bind.DoBind(Name(x))
+
+  // icit
+  enum Icit:
+    case Expl
+    case Impl
+    def wrap(x: Any): String = this match
+      case Expl => s"($x)"
+      case Impl => s"{$x}"
+
+  // meta ids
+  opaque type MetaId = Int
+  inline def metaId(id: Int): MetaId = id
+  extension (id: MetaId)
+    @targetName("exposeMetaId")
+    inline def expose: Int = id
+
+  // pruning
+  enum Prune:
+    case Skip
+    case Bind(icit: Icit)
+  type Pruning = List[Prune]
+
+  opaque type RevPruning = Pruning
+  extension (r: RevPruning)
+    @targetName("exposeRevPruning")
+    inline def expose: Pruning = r
+  object RevPruning:
+    inline def apply(p: Pruning): RevPruning = p.reverse

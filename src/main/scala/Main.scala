@@ -7,23 +7,27 @@ object Main:
     val text = Files.readString(Path.of(file))
     val defs = parse(text)
     val edefs = elaborate(defs, text)
-    given List[Common.Bind] = Nil
+    given ctx: Ctx = Ctx.empty
     edefs.foreach { d =>
+      val ty = ctx.pretty(ctx.eval(d.ty))
+      val v = ctx.pretty(ctx.eval(d.value))
       println(
-        s"def ${d.name} : ${Pretty.pretty(d.ty)} = ${Pretty.pretty(d.value)}"
+        s"def ${d.name} : $ty = $v"
       )
     }
+    /*
     State.getMetas().foreach { case (m, ty, ov) =>
-      val sty = Ctx.empty.pretty(ty)
-      ov.map(v => Ctx.empty.pretty(v)) match
+      val sty = ctx.pretty(ty)
+      ov.map(v => ctx.pretty(v)) match
         case None     => println(s"meta ?$m : $sty")
         case Some(sv) => println(s"meta ?$m : $sty = $sv")
     }
+     */
     println()
     State.getGlobal(Common.Name("main")) match
       case Some(State.GlobalEntry(_, _, _, Some((tm, _)))) =>
         val nf = Evaluation.nf(tm)
-        println(Pretty.pretty(nf))
+        println(ctx.pretty(nf))
       case _ => ()
 
   // helpers

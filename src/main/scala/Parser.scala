@@ -196,14 +196,19 @@ object Parser:
     else if trySymbol("\\") then parseLam()
     else if tryKeyword("self") then
       val pos = ctx.pos
-      symbol("(")
-      val x = name()
-      symbol(":")
-      val ty = parseExpr()
-      symbol(")")
-      symbol("=>")
-      val b = parseExpr()
-      Tm.Self(pos, x, ty, b)
+      if trySymbol("(") then
+        val x = name()
+        symbol(":")
+        val ty = parseExpr()
+        symbol(")")
+        symbol("=>")
+        val b = parseExpr()
+        Tm.Self(pos, x, Some(ty), b)
+      else
+        val x = name()
+        symbol("=>")
+        val b = parseExpr()
+        Tm.Self(pos, x, None, b)
     else if tryKeyword("in") then
       val pos = ctx.pos
       val expr = if trySymbol("\\") then parseLam() else parseAtom()

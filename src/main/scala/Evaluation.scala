@@ -101,7 +101,9 @@ object Evaluation:
       case Spine.App(sp, v, i) => Tm.App(quote(h, sp, q), quote(v, q), i)
       case Spine.Out(sp)       => Tm.Out(quote(h, sp, q))
 
-  def quote(v: Val, q: QuoteOption)(using lvl: Lvl): Tm =
+  def quote(v: Val, q: QuoteOption = QuoteOption.UnfoldNone)(using
+      lvl: Lvl
+  ): Tm =
     inline def go(v: Val): Tm = quote(v, q)
     inline def goSp(h: Tm, sp: Spine): Tm = quote(h, sp, q)
     inline def goClos(c: Clos): Tm = quote(c(Var1(lvl)), q)(using lvl + 1)

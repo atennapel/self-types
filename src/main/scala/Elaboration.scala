@@ -38,7 +38,7 @@ object Elaboration:
     go(ctx.locals, ctx.binds, ty)
 
   private def freshMetaId(ty: VTy)(using ctx: Ctx): MetaId =
-    val qa = closeTy(ctx.quote(ty, QuoteOption.UnfoldNone))
+    val qa = closeTy(ctx.quote(ty))
     val vqa = eval(qa)(using Env.Empty)
     val m = State.newMeta(vqa)
     debug(s"freshMetaId ?$m : ${ctx.pretty(ty)}")
@@ -99,7 +99,9 @@ object Elaboration:
 
         case (tm, Val.Pi(x, Impl, a, b)) =>
           val qa = ctx.quote(a)
-          val body = check(tm, b(Var1(ctx.lvl)))(using ctx.insert(x, Impl, qa))
+          val v = Var1(ctx.lvl)
+          val nself = self.map(s => app(s, v, Impl))
+          val body = check(tm, b(v), nself)(using ctx.insert(x, Impl, qa))
           Tm.Lam(x, Impl, qa, body)
 
         case (S.Tm.Let(_, x, mlty, v, b), _) =>
@@ -173,8 +175,11 @@ object Elaboration:
           val ea = check(a, Val.Type)
           val eb = check(b, Val.Type)(using ctx.bind(x, i, ea, ctx.eval(ea)))
           (Tm.Pi(x, i, ea, eb), Val.Type)
-        case S.Tm.Self(_, x, a, b) =>
-          val ea = check(a, Val.Type)
+
+        case S.Tm.Self(_, x, ma, b) =>
+          val ea = ma match
+            case Some(a) => check(a, Val.Type)
+            case None    => freshMeta(Val.Type)
           val eb =
             check(b, Val.Type)(using
               ctx.bind(DoBind(x), Expl, ea, ctx.eval(ea))

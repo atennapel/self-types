@@ -10,8 +10,7 @@ References:
 - https://github.com/AndrasKovacs/elaboration-zoo
 
 TODO:
-- Pruning
 - Fix looping issues
-- Add "split" syntax for case splits on datatypes
+- Add case splits on datatypes
 - Sprinkle some sugar around
 - Consider fix types or nominal types

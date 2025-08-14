@@ -18,7 +18,7 @@ object Surface:
     case Lam(posInfo: PosInfo, name: Bind, icit: Icit, ty: Option[Ty], body: Ty)
     case App(posInfo: PosInfo, fn: Tm, arg: Tm, icit: Icit)
 
-    case Self(posInfo: PosInfo, name: Name, ty: Ty, body: Ty)
+    case Self(posInfo: PosInfo, name: Name, ty: Option[Ty], body: Ty)
     case In(posInfo: PosInfo, tm: Tm)
     case Out(posInfo: PosInfo, tm: Tm)
 
@@ -48,7 +48,8 @@ object Surface:
       case Lam(_, x, i, ty, b)           => s"(\\${i.wrap(s"$x : $ty")} => $b)"
       case App(_, fn, arg, Icit.Expl)    => s"($fn $arg)"
       case App(_, fn, arg, Icit.Impl)    => s"($fn {$arg})"
-      case Self(_, x, t, b)              => s"(self ($x : $t) => $b)"
+      case Self(_, x, None, b)           => s"(self $x => $b)"
+      case Self(_, x, Some(t), b)        => s"(self ($x : $t) => $b)"
       case In(_, t)                      => s"(in $t)"
       case Out(_, t)                     => s"(out $t)"
       case Hole(_, None)                 => s"_"

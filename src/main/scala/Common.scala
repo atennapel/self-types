@@ -84,7 +84,14 @@ object Common:
   enum Prune:
     case Skip
     case Bind(icit: Icit)
+    def isSkip: Boolean = this match
+      case Skip => true
+      case _    => false
   type Pruning = List[Prune]
+
+  extension (p: Pruning)
+    inline def containsSkips: Boolean =
+      p.exists(_.isSkip)
 
   opaque type RevPruning = Pruning
   extension (r: RevPruning)

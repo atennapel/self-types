@@ -201,12 +201,9 @@ object Parser:
     else if trySymbol("\\") then parseLam()
     else if tryKeyword("case") then
       val pos = ctx.pos
-      val scrut = parseAtom()
-      val ty = if trySymbol(":") then Some(parseAtom()) else None
-      symbol("{")
-      trySymbol("|")
+      val scrut = parseExpr()
+      val ty = if trySymbol(":") then Some(parseExpr()) else None
       val cs = parseCases()
-      symbol("}")
       Tm.Case(pos, scrut, ty, cs)
     else if tryKeyword("self") then
       val pos = ctx.pos
@@ -308,10 +305,9 @@ object Parser:
 
   private def parseCases()(using ctx: Ctx): List[(PosInfo, Name, Tm)] =
     debug(s"parseCases: $ctx")
-    val first = parseCase()
-    val rest = mutable.ArrayBuffer.empty[(PosInfo, Name, Tm)]
-    while trySymbol("|") do rest += parseCase()
-    first :: rest.toList
+    val cs = mutable.ArrayBuffer.empty[(PosInfo, Name, Tm)]
+    while trySymbol("|") do cs += parseCase()
+    cs.toList
 
   private def parseCase()(using ctx: Ctx): (PosInfo, Name, Tm) =
     debug(s"parseCase: $ctx")

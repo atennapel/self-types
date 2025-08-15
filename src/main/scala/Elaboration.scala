@@ -277,11 +277,10 @@ object Elaboration:
       ctx: Ctx
   ): (Tm, VTy) =
     forceAll(dty) match
-      case Val.Pi(bx, i, a, b) =>
+      case Val.Pi(bx, i, a, b) if bx != DontBind =>
         val x = bx match
           case DoBind(x) => x
-          case DontBind  =>
-            err(s"case requires named parameters for the data type")
+          case DontBind  => impossible()
         cs.get(x) match
           case None              => err(s"missing constructor $x in case")
           case Some((pos, body)) =>

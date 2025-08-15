@@ -4,23 +4,22 @@ def False = in \P t f => f
 def indBool (P : Bool -> Type) (t : P True) (f : P False) (b : Bool) : P b =
   out b P t f
 def if {A} b t f = indBool (\_ => A) t f b
-def not b = if b False True
+def cond {A} (t f : A) = \b => if b t f
+def not = cond False True
 
 opaque def Nat = self n => (P : Nat -> Type) -> (Z : P Z) -> (S : (m : Nat) -> P (S m)) -> P n
 def Z = in \P z s => z
 def S n = in \P z s => s n
 def indNat (P : Nat -> Type) (z : P Z) (s : (m : Nat) -> P m -> P (S m)) (n : Nat) : P n =
-  case n : P {
+  case n : P
   | Z => z
   | S m => s m (indNat P z s m)
-  }
 def foldNat {A} n z s = indNat (\_ => A) z (\_ => s) n
 
 def pred (n : Nat) =
-  case n {
+  case n
   | Z => Z
   | S n => n
-  }
 
 def n0 = Z
 def n1 = S n0
@@ -43,15 +42,38 @@ def indVec {A} (P : {n} -> Vec n A -> Type)
 
 opaque def Id {A} (x y : A) : Type = self id => (P : {y} -> Id x y -> Type) -> (Refl : P Refl) -> P {y} id
 def Refl {A} {x : A} : Id x x = in \P x => x
-def rewrite {A} (x y : A) (P : A -> Type) (p : Id x y) (v : P x) : P y =
+def rewrite {A} {x y : A} (P : A -> Type) (p : Id x y) (v : P x) : P y =
   out p (\{y} _ => P y) v
+
+opaque def Unit = self u => (P : Unit -> Type) -> P Tt -> P u
+def Tt = in \P x => x
+
+def Void = (A : Type) -> A
+def absurd {A} (v : Void) : A = v A
+
+def NotId {A} (x y : A) : Type = Id x y -> Void
+
+def notnot (b : Bool) : Id (not (not b)) b =
+  indBool (\b => Id (not (not b)) b) Refl Refl b
+
+def true_neq_false : NotId True False =
+  \p => rewrite (cond Unit Void) p Tt
+
+def z_neq_s {n} : NotId Z (S n) =
+  \p => rewrite {Nat} (\n => case n | Z => Unit | S _ => Void) p Tt
+
+def vecHead {n A} (v : Vec (S n) A) : A =
+  (case v : \{m} v => Id m (S n) -> A
+  | VCons hd _ => \_ => hd
+  | VNil => \p => absurd (z_neq_s p)) Refl
+
+def vecTail {n A} (v : Vec (S n) A) : Vec n A =
+  (case v : \{m} v => Id m (S n) -> Vec (pred m) A
+  | VCons _ tl => \_ => tl
+  | VNil => \p => absurd (z_neq_s p)) Refl
 
 -- testing
 def vec = VCons n0 (VCons n1 (VCons n2 VNil))
-
--- testing proofs
-def notnot (b : Bool) : Id (not (not b)) b =
-  indBool (\b => Id (not (not b)) b) Refl Refl b
 
 -- testing normalization
 def add (a b : Nat) = foldNat a b S

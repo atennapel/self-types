@@ -9,6 +9,9 @@ object Unification:
   private inline def err(msg: String): Nothing =
     throw new UnificationError(msg)
 
+  private def quoteS(v: Val)(using k: Lvl): Tm =
+    quote(v, QuoteOption.UnfoldMetas)
+
   // partial renaming
   private type LvlMap = Map[Lvl, Lvl]
   private final case class Ren(
@@ -34,7 +37,7 @@ object Unification:
               (dom + 1, ren - x, nlvars + x, (x, i) :: fsp)
             else (dom + 1, ren + (x -> dom), nlvars, (x, i) :: fsp)
           case t =>
-            err(s"non-var in meta spine: ${quote(t)}")
+            err(s"non-var in meta spine: ${quoteS(t)}")
     val (dom, ren, nlvars, fsp) = go(sp)
     def mask(xs: List[(Lvl, Icit)]): Pruning =
       xs match
@@ -150,7 +153,9 @@ object Unification:
     val (ren, mp) = invert(sp)
     solve(m, mp, rhs)(using ren)
 
-  private def solve(m: MetaId, mp: Option[Pruning], rhs: Val)(using ren: Ren) =
+  private def solve(m: MetaId, mp: Option[Pruning], rhs: Val)(using
+      ren: Ren
+  ): Unit =
     val mty = State.unsolvedMetaType(m)
     mp.foreach(pr => pruneTy(RevPruning(pr), mty))
     val tm = rename(rhs)(using ren.withOcc(m))
@@ -170,7 +175,7 @@ object Unification:
       case (Spine.Out(sp1), Spine.Out(sp2)) => unify(top1, sp1, top2, sp2)
       case _                                =>
         err(
-          s"spine mismatch ${quote(top1)} ~ ${quote(top2)}"
+          s"spine mismatch ${quoteS(top1)} ~ ${quoteS(top2)}"
         )
 
   private def flexFlex(m1: MetaId, sp1: Spine, m2: MetaId, sp2: Spine)(using
@@ -204,11 +209,11 @@ object Unification:
 
   def unify(a: Val, b: Val)(using lvl: Lvl): Unit =
     debug(
-      s"unify ${quote(a, QuoteOption.UnfoldMetas)} ~ ${quote(b, QuoteOption.UnfoldMetas)}"
+      s"unify ${quoteS(a)} ~ ${quoteS(b)}"
     )
     inline def unifyErr() =
       err(
-        s"cannot unify ${quote(a, QuoteOption.UnfoldMetas)} ~ ${quote(b, QuoteOption.UnfoldMetas)}"
+        s"cannot unify ${quoteS(a)} ~ ${quoteS(b)}"
       )
     inline def goClos(a: Clos, b: Clos): Unit =
       val v = Var1(lvl)

@@ -30,7 +30,7 @@ object Surface:
 
     case Case(
         posInfo: PosInfo,
-        scrut: Tm,
+        scrut: Option[Tm],
         returnty: Option[Ty],
         cases: List[(PosInfo, Name, Tm)]
     )

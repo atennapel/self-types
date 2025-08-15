@@ -201,9 +201,16 @@ object Parser:
     else if trySymbol("\\") then parseLam()
     else if tryKeyword("case") then
       val pos = ctx.pos
-      val scrut = parseExpr()
-      val ty = if trySymbol(":") then Some(parseExpr()) else None
-      val args = if tryKeyword("with") then list(parseArg) else Nil
+      val (scrut, ty, args) =
+        if trySymbol(":") then (None, Some(parseExpr()), Nil)
+        else
+          peek match
+            case Some(Token.Symbol("|", _)) => (None, None, Nil)
+            case _                          =>
+              val scrut = parseExpr()
+              val ty = if trySymbol(":") then Some(parseExpr()) else None
+              val args = if tryKeyword("with") then list(parseArg) else Nil
+              (Some(scrut), ty, args)
       val cs = parseCases()
       val tm = Tm.Case(pos, scrut, ty, cs)
       apps(tm, args)

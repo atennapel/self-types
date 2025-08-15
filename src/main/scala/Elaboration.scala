@@ -149,6 +149,16 @@ object Elaboration:
           mx.foreach(x => State.addHole(x, tm, ty))
           tm
 
+        case (S.Tm.Case(_, None, None, cs), Val.Pi(x, Expl, a, b)) =>
+          val qa = ctx.quote(a)
+          val v = Var1(ctx.lvl)
+          val nctx = ctx.insert(x, Expl, qa)
+          val qv = nctx.quote(v)
+          val vselfty = getSelfBody(a, qv)
+          val (tm, vrt) = inferCase(qv, a, None, cs)(using nctx)
+          unify(vrt, b(v))(using nctx)
+          Tm.Lam(x, Expl, qa, tm)
+
         case (tm, _) =>
           val (etm, vty) = insert(infer(tm))
           coe(etm, vty, ty)
@@ -248,25 +258,35 @@ object Elaboration:
 
         case S.Tm.In(_, tm) => err("cannot infer in-expression")
 
-        case S.Tm.Case(_, scrut, ty, cs) =>
+        case S.Tm.Case(_, None, _, _) =>
+          err("cannot infer case without scrutinee")
+        case S.Tm.Case(_, Some(scrut), ty, cs) =>
           val (escrut, vty) = infer(scrut)
-          val vselfty = getSelfBody(vty, escrut)
-          val (rty, vrty, i) = forceAll(vselfty) match
-            case Val.Pi(_, i, expty, b) =>
-              val arg = ty match
-                case Some(ty) => check(ty, expty)
-                case None     => freshMetaIgnoreDeps(expty)
-              val varg = ctx.eval(arg)
-              (arg, b(varg), i)
-            case _ =>
-              err(
-                s"expected pi-type for case scrutinee type but got ${ctx.pretty(vselfty)}"
-              )
-          val xs = cs.map((_, x, _) => x)
-          if xs.toSet.size != xs.size then err(s"duplicate constructor in case")
-          val map = cs.map((pos, x, b) => x -> (pos, b)).toMap
-          val etm = Tm.App(Tm.Out(escrut), rty, i)
-          elaborateCases(map, etm, vrty)
+          inferCase(escrut, vty, ty, cs)
+
+  private def inferCase(
+      escrut: Tm,
+      vty: VTy,
+      ty: Option[S.Ty],
+      cs: List[(PosInfo, Name, S.Tm)]
+  )(using ctx: Ctx): (Tm, VTy) =
+    val vselfty = getSelfBody(vty, escrut)
+    val (rty, vrty, i) = forceAll(vselfty) match
+      case Val.Pi(_, i, expty, b) =>
+        val arg = ty match
+          case Some(ty) => check(ty, expty)
+          case None     => freshMetaIgnoreDeps(expty)
+        val varg = ctx.eval(arg)
+        (arg, b(varg), i)
+      case _ =>
+        err(
+          s"expected pi-type for case scrutinee type but got ${ctx.pretty(vselfty)}"
+        )
+    val xs = cs.map((_, x, _) => x)
+    if xs.toSet.size != xs.size then err(s"duplicate constructor in case")
+    val map = cs.map((pos, x, b) => x -> (pos, b)).toMap
+    val etm = Tm.App(Tm.Out(escrut), rty, i)
+    elaborateCases(map, etm, vrty)
 
   @tailrec
   private def elaborateCases(

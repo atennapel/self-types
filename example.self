@@ -60,7 +60,7 @@ def true_neq_false : NotId True False =
   \p => rewrite (cond Unit Void) p Tt
 
 def z_neq_s {n} : NotId Z (S n) =
-  \p => rewrite {Nat} (\n => case n | Z => Unit | S _ => Void) p Tt
+  \p => rewrite {Nat} (case | Z => Unit | S _ => Void) p Tt
 
 def vecHead {n A} (v : Vec (S n) A) : A =
   case v : \{m} v => Id m (S n) -> A with Refl

@@ -25,7 +25,7 @@ object Parser:
       case Token.Number(_, pos)     => pos
 
   private val keywords: Set[String] =
-    Set("def", "let", "Type", "self", "in", "out", "case")
+    Set("def", "opaque", "let", "Type", "self", "in", "out", "case")
   private val symbols1: Set[Char] =
     Set(':', ';', '=', '\\', '(', ')', '{', '}', '|')
   private val symbols2: Map[Char, Set[Char]] =
@@ -114,9 +114,10 @@ object Parser:
   private def hole(using ctx: Ctx) = Tm.Hole(ctx.pos, None)
 
   private def parseDef()(using ctx: Ctx): Option[Def] =
+    val opaque = tryKeyword("opaque")
     if tryKeyword("def") then
       val (pos, x, ty, body) = parseDefPart()
-      Some(Def(pos, x, ty, body))
+      Some(Def(pos, opaque, x, ty, body))
     else None
 
   private def parseDefPart()(using

@@ -88,7 +88,7 @@ object Elaboration:
     mx.foreach(x => if (!State.addHole(x, tm, ty)) err(s"duplicate hole _$x"))
 
   private def getSelfBody(vty: VTy, arg: Tm)(using ctx: Ctx): VTy =
-    forceAll(vty) match
+    forceAll(vty, true) match
       case Val.Self(_, _, b) => b(ctx.eval(arg))
       case _                 =>
         err(
@@ -103,7 +103,7 @@ object Elaboration:
       s"check $tm : ${ctx.pretty(ty)}${self.map(s => s" with self ${ctx.pretty(s)}").getOrElse("")}"
     )
     enter(tm.pos):
-      (tm, forceAll(ty)) match
+      (tm, forceAll(ty, true)) match
         case (S.Tm.Lam(_, x, i, ma, b), Val.Pi(x2, i2, t1, t2)) if i == i2 =>
           ma.foreach { sty => unify(ctx.eval(check(sty, Val.Type)), t1) }
           val qt1 = ctx.quote(t1)
@@ -172,7 +172,7 @@ object Elaboration:
               (Tm.Var(x.toIx(using ctx.lvl)), ty)
             case None =>
               State.getGlobal(x) match
-                case Some(g @ GlobalEntry(_, _, ty, _)) => (Tm.Global(x), ty)
+                case Some(g @ GlobalEntry(_, _, _, ty, _)) => (Tm.Global(x), ty)
                 case _ => err(s"undefined variable $x")
 
         case S.Tm.Let(_, x, mty, v, b) =>
@@ -299,8 +299,8 @@ object Elaboration:
     val x = defn.name
     if State.nameIsDefined(x) then err(s"duplicate name $x")
     val (ety, vty) = State.getGlobal(x) match
-      case Some(GlobalEntry(_, ety, vty, _)) => (ety, vty)
-      case _                                 => impossible()
+      case Some(GlobalEntry(_, _, ety, vty, _)) => (ety, vty)
+      case _                                    => impossible()
     val self = Val.Unfold(UnfoldHead.Global(x), Spine.Empty)
     val ev = check(defn.value, vty, Some(self))
     val vv = ctx.eval(ev)
@@ -315,7 +315,7 @@ object Elaboration:
       case None     => freshMeta(Val.Type)
       case Some(ty) => check(ty, Val.Type)
     val vty = ctx.eval(ety)
-    State.addGlobal(GlobalEntry(x, ety, vty, None))
+    State.addGlobal(GlobalEntry(x, defn.opaque, ety, vty, None))
 
   def elaborate(ds: S.Defs): Defs =
     ds.foreach(prepareElaboration)

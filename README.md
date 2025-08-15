@@ -11,7 +11,6 @@ References:
 
 TODO:
 - Case without scrutinee
-- Fix looping issues
 - Sprinkle some sugar around
 - Consider fix types or nominal types
 - Operators

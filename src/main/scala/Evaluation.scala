@@ -69,21 +69,23 @@ object Evaluation:
       case Tm.AppPruning(m, p) => appPruning(meta(m), p)
 
   // forcing
-  def global(x: Name): Option[Val] =
+  def global(x: Name, unfoldOpq: Boolean = false): Option[Val] =
     State.getGlobal(x) match
-      case Some(State.GlobalEntry(_, _, _, Some((_, v)))) => Some(v)
-      case _                                              => None
+      case Some(State.GlobalEntry(_, opq, _, _, Some((_, v))))
+          if unfoldOpq || !opq =>
+        Some(v)
+      case _ => None
 
   @tailrec
-  def forceAll(v: Val): Val = v match
+  def forceAll(v: Val, unfoldOpq: Boolean = false): Val = v match
     case Val.Flex(m, sp) =>
       State.getMeta(m) match
         case State.MetaEntry.Unsolved(_)  => v
-        case State.MetaEntry.Solved(v, _) => forceAll(spine(v, sp))
+        case State.MetaEntry.Solved(v, _) => forceAll(spine(v, sp), unfoldOpq)
     case Val.Unfold(UnfoldHead.Global(x), sp) =>
-      global(x) match
+      global(x, unfoldOpq) match
         case None    => v
-        case Some(v) => forceAll(spine(v, sp))
+        case Some(v) => forceAll(spine(v, sp), unfoldOpq)
     case v => v
 
   @tailrec

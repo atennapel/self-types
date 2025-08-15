@@ -25,7 +25,7 @@ object Main:
      */
     println()
     State.getGlobal(Common.Name("main")) match
-      case Some(State.GlobalEntry(_, _, _, Some((tm, _)))) =>
+      case Some(State.GlobalEntry(_, _, _, _, Some((tm, _)))) =>
         val nf = Evaluation.nf(tm)
         println(ctx.pretty(nf))
       case _ => ()

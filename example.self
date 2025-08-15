@@ -63,14 +63,14 @@ def z_neq_s {n} : NotId Z (S n) =
   \p => rewrite {Nat} (\n => case n | Z => Unit | S _ => Void) p Tt
 
 def vecHead {n A} (v : Vec (S n) A) : A =
-  (case v : \{m} v => Id m (S n) -> A
+  case v : \{m} v => Id m (S n) -> A with Refl
   | VCons hd _ => \_ => hd
-  | VNil => \p => absurd (z_neq_s p)) Refl
+  | VNil => \p => absurd (z_neq_s p)
 
 def vecTail {n A} (v : Vec (S n) A) : Vec n A =
-  (case v : \{m} v => Id m (S n) -> Vec (pred m) A
+  case v : \{m} v => Id m (S n) -> Vec (pred m) A with Refl
   | VCons _ tl => \_ => tl
-  | VNil => \p => absurd (z_neq_s p)) Refl
+  | VNil => \p => absurd (z_neq_s p)
 
 -- testing
 def vec = VCons n0 (VCons n1 (VCons n2 VNil))

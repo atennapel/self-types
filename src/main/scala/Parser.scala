@@ -25,7 +25,7 @@ object Parser:
       case Token.Number(_, pos)     => pos
 
   private val keywords: Set[String] =
-    Set("def", "opaque", "let", "Type", "self", "in", "out", "case")
+    Set("def", "opaque", "let", "Type", "self", "in", "out", "case", "with")
   private val symbols1: Set[Char] =
     Set(':', ';', '=', '\\', '(', ')', '{', '}', '|')
   private val symbols2: Map[Char, Set[Char]] =
@@ -203,8 +203,10 @@ object Parser:
       val pos = ctx.pos
       val scrut = parseExpr()
       val ty = if trySymbol(":") then Some(parseExpr()) else None
+      val args = if tryKeyword("with") then list(parseArg) else Nil
       val cs = parseCases()
-      Tm.Case(pos, scrut, ty, cs)
+      val tm = Tm.Case(pos, scrut, ty, cs)
+      apps(tm, args)
     else if tryKeyword("self") then
       val pos = ctx.pos
       if trySymbol("(") then
@@ -271,13 +273,14 @@ object Parser:
       if trySymbol("\\") then List((parseLam(), Icit.Expl))
       else Nil
     val hd2 = if hdOut then Tm.Out(outPos, hd) else hd
-    val expr = (tl ++ optLam).foldLeft(hd2) { case (f, (a, i)) =>
-      Tm.App(a.pos, f, a, i)
-    }
+    val expr = apps(hd2, tl ++ optLam)
     if trySymbol("->") then
       val rt = parseExpr()
       Tm.Pi(pos, Bind.DontBind, Icit.Expl, expr, rt)
     else expr
+
+  private def apps(hd: Tm, args: List[(Tm, Icit)]): Tm =
+    args.foldLeft(hd) { case (f, (a, i)) => Tm.App(a.pos, f, a, i) }
 
   private def parseArg()(using ctx: Ctx): Option[(Tm, Icit)] =
     debug(s"parseArg: $ctx")

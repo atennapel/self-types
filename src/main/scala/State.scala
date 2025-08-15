@@ -7,6 +7,7 @@ object State:
   // globals
   final case class GlobalEntry(
       name: Name,
+      opaque: Boolean,
       ty: Ty,
       vty: VTy,
       var value: Option[(Tm, Val)]
@@ -25,8 +26,8 @@ object State:
 
   def nameIsDefined(x: Name): Boolean =
     getGlobal(x) match
-      case Some(GlobalEntry(_, _, _, Some(_))) => true
-      case _                                   => false
+      case Some(GlobalEntry(_, _, _, _, Some(_))) => true
+      case _                                      => false
 
   // metas
   private val metas: mutable.ArrayBuffer[MetaEntry] = mutable.ArrayBuffer.empty

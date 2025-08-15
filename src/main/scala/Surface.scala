@@ -2,9 +2,15 @@ import Common.*
 import Common.Bind.*
 
 object Surface:
-  final case class Def(pos: PosInfo, name: Name, ty: Option[Ty], value: Tm):
+  final case class Def(
+      pos: PosInfo,
+      opaque: Boolean,
+      name: Name,
+      ty: Option[Ty],
+      value: Tm
+  ):
     override def toString: String =
-      s"def $name${ty.map(t => s" : $t").getOrElse("")} = $value"
+      s"${if opaque then "opaque " else ""}def $name${ty.map(t => s" : $t").getOrElse("")} = $value"
 
   type Defs = List[Def]
 

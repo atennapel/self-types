@@ -207,7 +207,9 @@ object Unification:
       s"unify ${quote(a, QuoteOption.UnfoldMetas)} ~ ${quote(b, QuoteOption.UnfoldMetas)}"
     )
     inline def unifyErr() =
-      err(s"cannot unify ${quote(a)} ~ ${quote(b)}")
+      err(
+        s"cannot unify ${quote(a, QuoteOption.UnfoldMetas)} ~ ${quote(b, QuoteOption.UnfoldMetas)}"
+      )
     inline def goClos(a: Clos, b: Clos): Unit =
       val v = Var1(lvl)
       unify(a(v), b(v))(using lvl + 1)
@@ -221,7 +223,7 @@ object Unification:
         case (Some(a), None)    => Some((a, b))
         case (None, Some(b))    => Some((a, b))
         case (Some(a), Some(b)) => Some((a, b))
-    inline def unfoldUnify2(err: => Nothing): Unit =
+    inline def unfoldUnify2(a: Val, b: Val)(err: => Nothing): Unit =
       unfold2(a, b).fold(err)((a, b) => unify(a, b))
     (forceMetas(a), forceMetas(b)) match
       case (Val.Type, Val.Type)                             => ()
@@ -250,12 +252,14 @@ object Unification:
       case (Val.Flex(m, sp), b) => solve(m, sp, b)
       case (a, Val.Flex(m, sp)) => solve(m, sp, a)
 
-      case (Val.Unfold(h1, sp1), Val.Unfold(h2, sp2)) =>
+      case (u1 @ Val.Unfold(h1, sp1), u2 @ Val.Unfold(h2, sp2)) =>
         try
           if h1 != h2 then err("head mismatch")
           unify(a, sp1, b, sp2)
-        catch case err: UnificationError => unfoldUnify2(throw err)
-      case (Val.Unfold(_, _), b) => unfoldUnify2(unifyErr())
-      case (a, Val.Unfold(_, _)) => unfoldUnify2(unifyErr())
+        catch case err: UnificationError => unfoldUnify2(u1, u2)(throw err)
+      case (u1 @ Val.Unfold(_, _), b) =>
+        unfold(u1).map(a => unify(a, b)).getOrElse(unifyErr())
+      case (a, u2 @ Val.Unfold(_, _)) =>
+        unfold(u2).map(b => unify(a, b)).getOrElse(unifyErr())
 
       case _ => unifyErr()
